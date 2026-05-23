@@ -35,6 +35,20 @@ export interface AgentWallet {
   address: Address;
 }
 
+/** Drip testnet USDC (gas) to any address via Circle's faucet. Needs only CIRCLE_API_KEY —
+ *  no entity secret — so it works even when the entity's wallet operations are unavailable.
+ *  Returns true on success. Safe to call repeatedly (faucet rate-limits per address). */
+export async function faucetDrip(apiKey: string, address: Address, blockchain = "ARC-TESTNET"): Promise<boolean> {
+  // entitySecret is unused by the faucet endpoint; pass a dummy so the client constructs.
+  const client = initiateDeveloperControlledWalletsClient({ apiKey, entitySecret: "00".repeat(32) });
+  try {
+    await client.requestTestnetTokens({ address, blockchain: blockchain as any, usdc: true, native: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Create `count` Circle SCA wallets on Arc testnet. */
 export async function createAgentWallets(client: CircleClient, count: number): Promise<AgentWallet[]> {
   const walletSet = await client.createWalletSet({ name: "Forecast Arena Agents" });

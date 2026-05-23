@@ -7,6 +7,7 @@ export {
   createAgentWallets,
   registerAgentViaCircle,
   circleExec,
+  faucetDrip,
   type CircleClient,
   type AgentWallet,
 } from "./circleWallet.js";

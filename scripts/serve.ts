@@ -2,9 +2,9 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { parseUnits, formatUnits, type Address } from "viem";
+import { parseUnits, parseEther, formatUnits, type Address } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { loadDeployment, makePublicClient, forecastArenaAbi, store, Mode } from "@arena/shared";
+import { loadDeployment, makePublicClient, makeWalletClient, forecastArenaAbi, store, Mode } from "@arena/shared";
 import { Resolver, PriceFeed } from "@arena/resolver";
 import {
   Agent,
@@ -162,10 +162,13 @@ async function main() {
   // (deployer + agents) can be funded in one faucet session. Keys persist to the volume.
   const eoaKeys = eoaArc ? loadOrCreateAgentKeys(fleetSize) : [];
   if (eoaArc) {
-    console.log(`\n⏳ Fund these wallets with testnet USDC (faucet: https://faucet.circle.com, select Arc testnet):`);
+    const fundEach = process.env.AGENT_FUND_USDC ?? 2;
+    const suggested = Number(fundEach) * eoaKeys.length + 4;
+    console.log(`\n⏳ Fund ONLY this deployer wallet with ~${suggested} testnet USDC (faucet: https://faucet.circle.com, select Arc testnet):`);
     console.log(`   DEPLOYER  ${deployerAddr}`);
-    for (const k of eoaKeys) console.log(`   AGENT     ${k.address}  (${k.strategy})`);
-    console.log("   Deployment runs once the deployer is funded; agents start as each is funded.\n");
+    console.log(`   On Arc, gas IS USDC — the app then auto-sends ${fundEach} USDC to each agent and starts forecasting:`);
+    for (const k of eoaKeys) console.log(`     → agent ${k.address}  (${k.strategy})`);
+    console.log("");
   }
 
   // 3. Deploy if we don't already have a deployment.
@@ -254,36 +257,57 @@ async function main() {
   const tracks = horizons.map((sec) => ({ sec, label: label(sec), open: undefined as undefined | { id: number; closeMs: number } }));
   console.log(`Fleet of ${agents.length} agents. Horizon tracks: ${tracks.map((t) => t.label).join(", ")}.`);
 
-  // Lazily ERC-8004-register EOA agents once they're funded (best-effort; identity is optional
-  // for forecasting since the arena skips the ownerOf check when agentId is 0).
-  let lastLazyCheck = 0;
-  async function lazyRegisterEoa(): Promise<void> {
-    if (!IS_ARC || hasCircle || eoaFleet.length === 0) return;
-    if (eoaFleet.every((e) => e.registered)) return;
-    if (Date.now() - lastLazyCheck < 20000) return;
-    lastLazyCheck = Date.now();
+  // EOA upkeep (Arc, no Circle): the deployer is the only wallet you fund manually — on Arc the
+  // native gas token IS USDC, so we auto-distribute gas from the deployer to each agent wallet,
+  // then lazily ERC-8004-register funded agents (identity is optional; arena skips ownerOf when
+  // agentId is 0). Runs throttled inside the loop so agents come online without a restart.
+  const agentFundEth = parseEther(String(process.env.AGENT_FUND_USDC ?? 2)); // native USDC (18-dec) per agent
+  let lastUpkeep = 0;
+  async function maintainEoaFleet(): Promise<void> {
+    if (!eoaArc || eoaFleet.length === 0) return;
+    if (Date.now() - lastUpkeep < 20000) return;
+    lastUpkeep = Date.now();
+    const deployerBal = await balanceOf(pub, deployerAddr);
+    let w: ReturnType<typeof makeWalletClient> | undefined;
     for (const e of eoaFleet) {
-      if (e.registered) continue;
-      if ((await balanceOf(pub, e.key.address)) === 0n) continue;
-      try {
-        const agentId = await registerAgent(e.key.privateKey, dep.identityRegistry, `ipfs://agent-${e.idx}-${e.key.strategy}`);
-        e.agent.setAgentId(agentId);
-        e.key.agentId = agentId.toString();
-        e.registered = true;
-        const keys = loadOrCreateAgentKeys(fleetSize);
-        keys[e.idx] = e.key;
-        saveAgentKeys(keys);
-        console.log(`Registered EOA agent ${e.key.address} -> agentId ${agentId}`);
-      } catch {
-        /* not funded enough yet / transient — retry next pass */
+      let bal = await balanceOf(pub, e.key.address);
+      // 1. top up gas from the deployer if this agent is empty and the deployer can spare it
+      if (bal === 0n && deployerBal > agentFundEth + parseEther("0.5")) {
+        try {
+          w ??= makeWalletClient(deployerKey);
+          const hash = await w.sendTransaction({ to: e.key.address, value: agentFundEth, account: w.account!, chain: w.chain });
+          await pub.waitForTransactionReceipt({ hash });
+          bal = agentFundEth;
+          console.log(`Funded agent ${e.key.address} with ${formatUnits(agentFundEth, 18)} USDC gas from deployer`);
+        } catch (err) {
+          console.error("fund agent:", String(err).slice(0, 120));
+        }
+      }
+      // 2. register once it has gas
+      if (!e.registered && bal > 0n) {
+        try {
+          const agentId = await registerAgent(e.key.privateKey, dep.identityRegistry, `ipfs://agent-${e.idx}-${e.key.strategy}`);
+          e.agent.setAgentId(agentId);
+          e.key.agentId = agentId.toString();
+          e.registered = true;
+          const keys = loadOrCreateAgentKeys(fleetSize);
+          keys[e.idx] = e.key;
+          saveAgentKeys(keys);
+          console.log(`Registered EOA agent ${e.key.address} -> agentId ${agentId}`);
+        } catch {
+          /* transient — retry next pass */
+        }
       }
     }
   }
 
+  // Settle a touch after the local close time to absorb chain-vs-local clock skew (the contract's
+  // closeTs is set at openRound mining time, a few seconds after our local open). Avoids RoundNotClosed.
+  const settleGraceMs = IS_ARC ? 6000 : 0;
   let settleCount = 0;
   while (true) {
+    await maintainEoaFleet(); // may take seconds (Arc tx waits) — read the clock AFTER it
     const now = Date.now();
-    await lazyRegisterEoa();
     for (const tr of tracks) {
       try {
         if (!tr.open) {
@@ -294,9 +318,9 @@ async function main() {
             // Per-agent failures (e.g. an unfunded EOA on Arc) must not abort the round.
             await agent.forecastRound(roundId, ctx).catch((err) => console.error(`  ${agent.name} skip:`, String(err).slice(0, 120)));
           }
-          tr.open = { id: roundId, closeMs: now + tr.sec * 1000 };
+          tr.open = { id: roundId, closeMs: Date.now() + tr.sec * 1000 };
           console.log(`Opened round ${roundId} (${tr.label}) @ ${feed.current().toFixed(2)}`);
-        } else if (now >= tr.open.closeMs) {
+        } else if (now >= tr.open.closeMs + settleGraceMs) {
           const result = await resolver.settle(tr.open.id, feed.current());
           await resolver.pushReputation(tr.open.id, agents.map((a) => a.address) as Address[]).catch((e) => console.error("pushReputation:", String(e).slice(0, 120)));
           const w = store.getTrace(tr.open.id, result.winner);

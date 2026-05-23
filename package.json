@@ -5,6 +5,7 @@
   "scripts": {
     "deploy:local": "bash scripts/deploy-local.sh",
     "demo:local": "bash scripts/demo-local.sh",
+    "serve": "tsx scripts/serve.ts",
     "resolver": "pnpm --filter @arena/resolver start",
     "agents": "pnpm --filter @arena/agents start",
     "api": "pnpm --filter @arena/api start"

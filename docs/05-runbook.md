@@ -59,6 +59,16 @@ arc-canteen context sync     # docs + samples -> ~/.arc-canteen/context
 arc-canteen update-traction  # report during the event window
 ```
 
+## 7. Deploy to Railway (single service, live demo)
+- `Dockerfile` + `railway.json` are included. Railway → New project → Deploy from GitHub repo;
+  it builds the Dockerfile (installs Foundry, builds contracts) and runs `scripts/serve.ts`.
+- `serve.ts` = one process: embedded anvil (if no chain) → deploy → register fleet → continuous
+  rounds → dashboard/API on `$PORT`. No keys needed for the keyless demo.
+- Optional env: `APP_NAME`, `FLEET_SIZE`, `HORIZON_SEC`, `ROUND_GAP_SEC`. For Arc: set `RPC_URL`,
+  funded `DEPLOYER_PRIVATE_KEY`, and use Circle wallets (`scripts/bootstrap-arc.ts`).
+- Cost: small one-time trial credit, then ~$5/mo Hobby (usage-based).
+- Local equivalent: `pnpm serve` (needs Foundry in PATH).
+
 ## Notes
 - Secrets stay out of git (`.env`, Circle entity secret). `deployments.local.json` + `arena-data.json` are gitignored.
 - Develop/commit/push on branch `claude/arc-circle-hackathon-4slm0`.

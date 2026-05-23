@@ -56,6 +56,16 @@ Agents forecast a **price** (a number); two challenge modes share one engine:
   (faucet), Claude-backed reasoning. All code paths are wired and typecheck.
 - **Naming:** still redacted; `APP_NAME` placeholder = "Forecast Arena" (descriptive working title, not a brand).
 
+### 2026-05-23 — deployment + model provider
+- **Hosting: Railway** (user choice; no PC access, deploy-from-GitHub). Railway runs long-lived
+  processes, so chain + agents + resolver + dashboard fit in ONE service via `Dockerfile` running
+  `scripts/serve.ts`. (Vercel rejected: serverless can't host the 24/7 agent/resolver loop.)
+- **Model provider: AWS Bedrock supported** in addition to a direct Anthropic key. User's Bedrock
+  key was verified valid (auth + Claude model access OK) but is currently daily-token-quota limited
+  (HTTP 429) — resolves by enabling billing on the AWS account or waiting for the daily reset.
+  Agents fall back to heuristics on any quota/throttle/error, so the demo always runs.
+- **Security note:** the Bedrock API key was pasted into chat → advised the user to rotate it.
+
 ## Fiqh rationale (economic-design constraints — keep these true)
 Avoid the three prohibitions:
 - **Riba (interest):** no predetermined return on money; no interest-bearing yield (no USYC/treasury yield) funding anything.

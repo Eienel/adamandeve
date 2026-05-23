@@ -59,6 +59,27 @@ pnpm api               # dashboard at http://localhost:8787  (keep anvil from th
 Without an `ANTHROPIC_API_KEY` agents use deterministic heuristic strategies (momentum,
 mean-reversion, contrarian). Set `ANTHROPIC_API_KEY` to enable Claude-backed reasoning.
 
+## One-process server (`serve.ts`)
+
+`pnpm serve` runs a single self-contained process: it boots an embedded chain (if none),
+deploys, registers the fleet, runs forecast rounds continuously, and serves the dashboard —
+ideal for a single always-on deployment. It binds the web port from `$PORT`.
+
+## Deploy to Railway (live demo, no keys)
+
+Railway runs long-lived processes, so the whole thing (chain + agents + resolver + dashboard)
+fits in **one service** via the included `Dockerfile`.
+
+1. Push this repo to GitHub and create a Railway project → **Deploy from GitHub repo**.
+2. Railway detects the `Dockerfile` (and `railway.json`). No env vars are required for the
+   keyless embedded-chain demo; set `APP_NAME`, `FLEET_SIZE`, `HORIZON_SEC` to taste.
+3. Railway injects `PORT`; the dashboard is served there. Add a public domain → that's your live link.
+4. To target Arc instead of the embedded chain, set `RPC_URL=https://rpc.testnet.arc.network`,
+   a funded `DEPLOYER_PRIVATE_KEY`, and use Circle wallets for the fleet (see `scripts/bootstrap-arc.ts`).
+
+Cost: Railway gives a small one-time trial credit, then ~$5/mo Hobby (usage-based); a light
+always-on demo like this stays within a few dollars.
+
 ## Run the contracts' tests
 
 ```bash

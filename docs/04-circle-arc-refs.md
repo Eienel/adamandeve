@@ -2,11 +2,42 @@
 
 > Practical integration notes + research findings. Verify TBD values via the `arc-canteen` CLI / official docs during setup.
 
-## Arc testnet (fill in during setup)
-- RPC URL: **get via `arc-canteen rpc-url`** (authenticated endpoint). Also `arc-canteen rpc <method> <params>` for raw JSON-RPC.
-- Chain ID / network name / explorer URL / faucet: TBD — confirm from https://docs.arc.network and the synced context.
-- Native gas token: **USDC** (no separate gas token).
-- EVM-compatible → Foundry/Hardhat/thirdweb all work. Use Foundry.
+## Arc testnet (CONFIRMED from synced context)
+| Field | Value |
+|-------|-------|
+| Network | Arc Testnet |
+| Chain ID | `5042002` (hex `0x4CEF52`) |
+| RPC | `https://rpc.testnet.arc.network` (public; no auth) |
+| WebSocket | `wss://rpc.testnet.arc.network` |
+| Explorer | https://testnet.arcscan.app |
+| Faucet | https://faucet.circle.com (and https://console.circle.com/faucet) |
+| CCTP domain | `26` |
+
+- Native gas token: **USDC**. **Dual decimals: native gas = 18 decimals, ERC-20 USDC = 6 decimals.** Do not mix.
+- EVM-compatible → Foundry/Hardhat/viem/wagmi work. `arcTestnet` chain is built into viem (no custom chain def needed).
+- `arc-canteen rpc <method> [params]` proxies JSON-RPC (read-mostly allowlist + `eth_sendRawTransaction`). `arc-canteen rpc eth_chainId` → `0x4cef52`.
+- Auth note: `arc-canteen login` needs interactive GitHub device flow; the public RPC above works without it.
+
+### Token addresses (Arc testnet)
+| Token | Address | Decimals |
+|-------|---------|----------|
+| USDC | `0x3600000000000000000000000000000000000000` | 6 |
+| EURC | `0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a` | 6 |
+
+### Agentic-economy standards — DEPLOYED on Arc testnet (we build on these)
+ERC-8004 (identity / reputation / validation):
+| Contract | Address | Key fn |
+|----------|---------|--------|
+| IdentityRegistry | `0x8004A818BFB912233c491871b3d84c89A494BD9e` | `register(string metadataURI)` → mints ERC-721 identity NFT; agentId = tokenId; `ownerOf`, `tokenURI` |
+| ReputationRegistry | `0x8004B663056A597Dffe9eCcC1965A193B7388713` | `giveFeedback(uint256 agentId,int128 score,uint8 feedbackType,string tag,string metadataURI,string evidenceURI,string comment,bytes32 feedbackHash)` — owner can NOT rate own agent |
+| ValidationRegistry | `0x8004Cb1BF31DAf7788923b405b754f57acEB4272` | `validationRequest(...)` / `validationResponse(...)` / `getValidationStatus(bytes32)` |
+
+ERC-8183 (job lifecycle / escrow settlement):
+| Contract | Address | Lifecycle |
+|----------|---------|-----------|
+| AgenticCommerce ref impl | `0x0747EEf0706327138c69792bF28Cd525089e4583` | `createJob(provider,evaluator,expiredAt,description,hook)` → `setBudget(jobId,amount,0x)` → USDC `approve` → `fund(jobId,0x)` → `submit(jobId,bytes32 deliverable,0x)` → `complete(jobId,bytes32 reason,0x)`; states: Open,Funded,Submitted,Completed,Rejected,Expired |
+
+How we use them: agents register identity (ERC-8004) → forecast accuracy recorded as reputation (our arena contract is the neutral attestor, satisfies non-self-dealing) → selling intelligence / managed work settled as ERC-8183 jobs (escrowed USDC, deliverable = forecast/reasoning hash). Gas station: ~0.006 USDC per tx.
 
 ## Arc CLI (`arc-canteen`)
 - Install: `uv tool install git+https://github.com/the-canteen-dev/ARC-cli`

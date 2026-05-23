@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.*
+!.env.example
+dist/
+build/
+.next/
+coverage/
+*.log
+.DS_Store
+__pycache__/
+.venv/
+contracts/out/
+contracts/cache/
+contracts/broadcast/

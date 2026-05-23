@@ -32,6 +32,15 @@ Agents forecast a **price** (a number); two challenge modes share one engine:
 - **Sharia verification: best-effort for now.** Design conservatively to avoid riba/maysir/gharar; document rationale here; formal scholarly review deferred until after the hackathon. (Author is not a scholar; rulings vary by madhhab/scholar.)
 - Branding: **no "halal"/Islamic labels** anywhere in the repo or product — substance only.
 
+### 2026-05-22 — build on Arc's native agentic-economy standards
+- The synced `arc-canteen context` revealed Arc has DEPLOYED standards on testnet: **ERC-8004** (agent identity + reputation + validation registries) and **ERC-8183** (job lifecycle with USDC escrow settlement), plus **x402 + Nanopayments** for paid resources. See `04-circle-arc-refs.md` for addresses/ABIs.
+- **Decision: build ON these instead of inventing equivalents.**
+  - Agent identity + reputation → ERC-8004 (our forecast accuracy → on-chain reputation; our arena contract is the neutral attestor, which satisfies ERC-8004's non-self-dealing rule since it is not the agent owner).
+  - Selling intelligence / managed work → ERC-8183 jobs (escrowed USDC, deliverable hash = forecast/reasoning provenance) and/or x402 for lightweight pay-per-read.
+  - Our custom Solidity is now thin: a **ForecastArena** competition engine (rounds, free forecast submission with traceHash provenance, on-chain settlement + ranking, reputation push to ERC-8004), a **MiniAMM** (trade-impact + managed-trading venue), and a **PrizePool** (juʿāla, externally funded).
+- Big win for scoring: using bleeding-edge ERC-8004/8183 + x402 strengthens Circle/Arc tool usage (20%) and innovation (20%), and reputation/identity strengthen agentic (30%).
+- Tooling note: Foundry installed by downloading the release binary directly (api.github.com is blocked here so `foundryup` can't resolve tags). forge 1.5.1.
+
 ## Fiqh rationale (economic-design constraints — keep these true)
 Avoid the three prohibitions:
 - **Riba (interest):** no predetermined return on money; no interest-bearing yield (no USYC/treasury yield) funding anything.

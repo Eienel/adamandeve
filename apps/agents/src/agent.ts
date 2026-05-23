@@ -5,7 +5,7 @@ import {
   forecastArenaAbi,
   store,
 } from "@arena/shared";
-import { claudeForecast, heuristics, type MarketContext, type StrategyName } from "./strategies.js";
+import { claudeForecast, heuristics, hasModelProvider, type MarketContext, type StrategyName } from "./strategies.js";
 
 export interface AgentConfig {
   name: string;
@@ -34,12 +34,15 @@ export class Agent {
     this.address = this.wallet.account!.address;
     this.arena = cfg.arena;
     this.agentId = cfg.agentId ?? 0n;
-    this.model = cfg.model ?? "claude-haiku-4-5-20251001";
+    this.model =
+      cfg.model ??
+      process.env.AGENT_MODEL ??
+      (process.env.AWS_BEARER_TOKEN_BEDROCK ? "us.anthropic.claude-3-5-haiku-20241022-v1:0" : "claude-haiku-4-5-20251001");
   }
 
   /** Decide a forecast for the round, submit it on-chain, and persist the reasoning trace. */
   async forecastRound(roundId: number, ctx: MarketContext): Promise<{ value: number; txHash: string }> {
-    const useClaude = !!process.env.ANTHROPIC_API_KEY;
+    const useClaude = hasModelProvider();
     const f = useClaude ? await claudeForecast(this.strategy, ctx, this.model) : heuristics[this.strategy](ctx);
 
     const value = parseUnits(f.value.toFixed(6), 18);

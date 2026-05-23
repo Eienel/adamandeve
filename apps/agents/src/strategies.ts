@@ -63,25 +63,32 @@ export const heuristics: Record<StrategyName, (ctx: MarketContext) => Forecast> 
   },
 };
 
-/** Optional Claude-backed reasoning. Falls back to the heuristic if no API key or on error. */
-export async function claudeForecast(
-  strategy: StrategyName,
-  ctx: MarketContext,
-  model: string,
-): Promise<Forecast> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return heuristics[strategy](ctx);
+/** True if any LLM provider is configured (Bedrock bearer token or a direct Anthropic key). */
+export function hasModelProvider(): boolean {
+  return !!(process.env.AWS_BEARER_TOKEN_BEDROCK || process.env.ANTHROPIC_API_KEY);
+}
 
-  try {
+/** Call Claude via AWS Bedrock (bearer-token invoke) or the direct Anthropic API.
+ *  Returns the raw text, or null to signal "fall back to heuristic". */
+async function callModel(system: string, user: string, model: string): Promise<string | null> {
+  const bedrockToken = process.env.AWS_BEARER_TOKEN_BEDROCK;
+  if (bedrockToken) {
+    const region = process.env.AWS_REGION ?? "us-east-1";
+    const url = `https://bedrock-runtime.${region}.amazonaws.com/model/${encodeURIComponent(model)}/invoke`;
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${bedrockToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ anthropic_version: "bedrock-2023-05-31", max_tokens: 400, system, messages: [{ role: "user", content: user }] }),
+    });
+    if (!r.ok) return null; // quota/throttle/error -> heuristic fallback
+    const j = (await r.json()) as { content?: { type: string; text?: string }[] };
+    return (j.content ?? []).map((c) => c.text ?? "").join("") || null;
+  }
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (apiKey) {
     const { default: Anthropic } = await import("@anthropic-ai/sdk");
     const client = new Anthropic({ apiKey });
-    const system =
-      `You are an autonomous market-forecasting agent with a ${strategy} bias. ` +
-      `Given recent prices, output ONLY strict JSON: {"value": <number>, "reasoning": "<2-3 sentences>"}. ` +
-      `value is your point forecast for the reference price at the round close. Be decisive.`;
-    const user =
-      `Subject: ${ctx.subject}\nRecent prices (oldest→newest): ${ctx.history.map((p) => p.toFixed(2)).join(", ")}\n` +
-      `Spot now: ${ctx.current.toFixed(2)}\nHorizon: ${ctx.horizonSec}s\nReturn JSON only.`;
     const resp = await client.messages.create({
       model,
       max_tokens: 400,
@@ -89,7 +96,30 @@ export async function claudeForecast(
       system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }] as any,
       messages: [{ role: "user", content: user }],
     });
-    const text = resp.content.map((c) => (c.type === "text" ? c.text : "")).join("");
+    return resp.content.map((c) => (c.type === "text" ? c.text : "")).join("");
+  }
+
+  return null;
+}
+
+/** Optional Claude-backed reasoning (Bedrock or Anthropic). Falls back to the heuristic on any error. */
+export async function claudeForecast(
+  strategy: StrategyName,
+  ctx: MarketContext,
+  model: string,
+): Promise<Forecast> {
+  try {
+    const system =
+      `You are an autonomous market-forecasting agent with a ${strategy} bias. ` +
+      `Given recent prices, output ONLY strict JSON: {"value": <number>, "reasoning": "<2-3 sentences>"}. ` +
+      `value is your point forecast for the reference price at the round close. Be decisive.`;
+    const user =
+      `Subject: ${ctx.subject}\nRecent prices (oldest→newest): ${ctx.history.map((p) => p.toFixed(2)).join(", ")}\n` +
+      `Spot now: ${ctx.current.toFixed(2)}\nHorizon: ${ctx.horizonSec}s\nReturn JSON only.`;
+
+    const text = await callModel(system, user, model);
+    if (!text) return heuristics[strategy](ctx);
+
     const json = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
     if (typeof json.value === "number" && typeof json.reasoning === "string") {
       return { value: json.value, reasoning: json.reasoning };

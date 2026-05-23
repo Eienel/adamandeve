@@ -9,7 +9,7 @@
     <meta property="og:description" content="Autonomous agents · verifiable forecasts · pay-per-insight · settled on Arc" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Orbitron:wght@600;700;800;900&family=Chakra+Petch:wght@500;600;700&display=swap" rel="stylesheet" />
     <style>
       :root {
         --bg: #07090c;
@@ -29,6 +29,53 @@
         --rose: #fb7185;
         --shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 20px 50px -20px rgba(0,0,0,0.7);
       }
+
+      /* ---------- light theme: milk / cardboard paper (grain reads stronger) ---------- */
+      [data-theme="light"] {
+        --bg: #efe9dd;
+        --bg-2: #e6dccb;
+        --panel: rgba(255,255,255,0.55);
+        --panel-2: rgba(255,255,255,0.82);
+        --line: rgba(45,38,26,0.13);
+        --line-2: rgba(45,38,26,0.22);
+        --text: #2a2620;
+        --dim: #6a6354;
+        --faint: #9a9183;
+        --mint: #0e9f6e;
+        --mint-deep: #0a7d56;
+        --cyan: #0e8fb0;
+        --violet: #7c5cf0;
+        --gold: #b9860b;
+        --shadow: 0 1px 0 rgba(255,255,255,0.65) inset, 0 16px 40px -24px rgba(60,50,30,0.55);
+      }
+      [data-theme="light"] body::before { opacity: .19; mix-blend-mode: multiply; }
+      [data-theme="light"] body::after {
+        background:
+          radial-gradient(900px 520px at 80% -10%, rgba(14,159,110,0.10), transparent 60%),
+          radial-gradient(820px 600px at 8% 0%, rgba(124,92,240,0.08), transparent 55%),
+          linear-gradient(180deg, #f2ece0, #e7decd);
+      }
+      [data-theme="light"] .cover .floor {
+        background-image:
+          linear-gradient(rgba(45,38,26,0.22) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(45,38,26,0.16) 1px, transparent 1px);
+        opacity: .5;
+      }
+      [data-theme="light"] .cover .halo { background: radial-gradient(closest-side, rgba(14,159,110,0.16), rgba(124,92,240,0.07) 45%, transparent 70%); }
+      [data-theme="light"] .cover .scan { opacity: .1; mix-blend-mode: multiply; }
+      [data-theme="light"] .cover::after { background: radial-gradient(125% 85% at 50% 26%, transparent 46%, rgba(70,58,36,0.16) 100%); }
+      [data-theme="light"] .bracket { border-color: rgba(14,159,110,0.5); }
+      [data-theme="light"] .cover-title {
+        background: linear-gradient(180deg, #2a2620 8%, #145c44 68%, var(--mint) 100%);
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+        text-shadow: 0 2px 18px rgba(14,159,110,0.22); filter: none;
+      }
+      [data-theme="light"] .hud-stat .v { color: #2a2620; text-shadow: none; }
+      [data-theme="light"] .hud-stat.gold .v { color: var(--gold); text-shadow: none; }
+      [data-theme="light"] .hud-stat.violet .v, [data-theme="light"] .hud-stat.cyan .v { text-shadow: none; }
+      [data-theme="light"] .lb-bar { background: rgba(45,38,26,0.1); }
+      [data-theme="light"] .mark { box-shadow: 0 6px 18px -8px rgba(14,159,110,0.6), 0 0 0 1px rgba(0,0,0,0.05) inset; }
+      [data-theme="light"] tr.rrow.active { background: rgba(14,159,110,0.08); }
       * { box-sizing: border-box; }
       html { scroll-behavior: smooth; }
       body {
@@ -59,25 +106,6 @@
       }
       .mono { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-ligatures: none; }
 
-      /* ---------- nav ---------- */
-      nav {
-        position: sticky; top: 0; z-index: 50;
-        display: flex; align-items: center; gap: 14px;
-        padding: 14px clamp(16px, 4vw, 40px);
-        background: rgba(7,9,12,0.72);
-        backdrop-filter: blur(14px);
-        border-bottom: 1px solid var(--line);
-      }
-      .brand { display: flex; align-items: center; gap: 11px; }
-      .mark {
-        width: 34px; height: 34px; border-radius: 10px; flex: 0 0 auto;
-        background: linear-gradient(140deg, var(--mint), var(--cyan) 55%, var(--violet));
-        display: grid; place-items: center;
-        box-shadow: 0 6px 20px -6px rgba(52,211,153,0.5), 0 0 0 1px rgba(255,255,255,0.08) inset;
-      }
-      .mark svg { display: block; }
-      .brand .name { font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 16px; letter-spacing: 0.2px; }
-      .nav-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
       .chip {
         display: inline-flex; align-items: center; gap: 7px;
         padding: 5px 11px; border-radius: 999px; font-size: 12px; font-weight: 500;
@@ -91,50 +119,123 @@
       /* ---------- layout ---------- */
       .container { max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 4vw, 40px); }
 
-      /* ---------- hero ---------- */
-      .hero { padding: clamp(40px, 7vw, 88px) 0 clamp(28px, 4vw, 44px); }
-      .eyebrow {
-        display: inline-flex; align-items: center; gap: 8px; margin-bottom: 20px;
-        font-size: 12px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--mint);
-        font-weight: 600;
+      /* ---------- game cover ---------- */
+      .cover {
+        position: relative; min-height: 100svh; overflow: hidden;
+        display: flex; flex-direction: column;
+        padding: 0 clamp(16px, 4vw, 40px);
+        isolation: isolate;
       }
-      .eyebrow::before { content: ""; width: 22px; height: 1px; background: linear-gradient(90deg, var(--mint), transparent); }
-      h1.hero-title {
-        font-family: "Space Grotesk", sans-serif;
-        font-weight: 700; letter-spacing: -1.2px; line-height: 1.04;
-        font-size: clamp(34px, 6.4vw, 66px); margin: 0 0 18px;
+      /* perspective grid floor */
+      .cover .floor {
+        position: absolute; left: 50%; bottom: -8%; z-index: -3;
+        width: 240%; height: 62%;
+        transform: translateX(-50%) perspective(360px) rotateX(64deg);
+        transform-origin: 50% 100%;
+        background-image:
+          linear-gradient(rgba(52,211,153,0.30) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(34,211,238,0.22) 1px, transparent 1px);
+        background-size: 46px 46px;
+        animation: floor 7s linear infinite;
+        -webkit-mask-image: linear-gradient(to top, #000 2%, transparent 72%);
+        mask-image: linear-gradient(to top, #000 2%, transparent 72%);
+        opacity: .55;
       }
-      h1.hero-title .grad {
-        background: linear-gradient(100deg, var(--mint), var(--cyan) 50%, var(--violet));
+      @keyframes floor { from { background-position: 0 0; } to { background-position: 0 46px; } }
+      /* halo glow behind title */
+      .cover .halo {
+        position: absolute; top: 34%; left: 50%; z-index: -3;
+        width: min(820px, 90vw); height: 620px; transform: translate(-50%, -50%);
+        background: radial-gradient(closest-side, rgba(52,211,153,0.20), rgba(34,211,238,0.10) 45%, transparent 70%);
+        filter: blur(18px); pointer-events: none; animation: haloPulse 5s ease-in-out infinite;
+      }
+      @keyframes haloPulse { 0%,100% { opacity:.75; } 50% { opacity:1; } }
+      /* scanlines + vignette */
+      .cover .scan { position: absolute; inset: 0; z-index: -2; pointer-events: none; opacity: .35;
+        background: repeating-linear-gradient(0deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 3px); }
+      .cover::after { content: ""; position: absolute; inset: 0; z-index: -2; pointer-events: none;
+        background: radial-gradient(125% 85% at 50% 26%, transparent 38%, rgba(0,0,0,0.55) 100%); }
+      /* corner HUD brackets */
+      .bracket { position: absolute; width: 26px; height: 26px; border: 2px solid rgba(52,211,153,0.45); z-index: 2; }
+      .bracket.tl { top: 16px; left: 16px; border-right: 0; border-bottom: 0; }
+      .bracket.tr { top: 16px; right: 16px; border-left: 0; border-bottom: 0; }
+      .bracket.bl { bottom: 16px; left: 16px; border-right: 0; border-top: 0; }
+      .bracket.br { bottom: 16px; right: 16px; border-left: 0; border-top: 0; }
+
+      /* cover top HUD */
+      .hud-top { display: flex; align-items: center; gap: 12px; padding: 18px 4px 0; }
+      .brand { display: flex; align-items: center; gap: 11px; }
+      .mark {
+        width: 34px; height: 34px; border-radius: 10px; flex: 0 0 auto;
+        background: linear-gradient(140deg, var(--mint), var(--cyan) 55%, var(--violet));
+        display: grid; place-items: center;
+        box-shadow: 0 6px 20px -6px rgba(52,211,153,0.5), 0 0 0 1px rgba(255,255,255,0.08) inset;
+      }
+      .brand .name { font-family: "Orbitron", sans-serif; font-weight: 700; font-size: 14px; letter-spacing: 2px; text-transform: uppercase; }
+      .hud-top .right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+      .hud-top .right .chip { font-family: "Chakra Petch", sans-serif; letter-spacing: 1px; text-transform: uppercase; font-size: 11px; }
+      .theme-toggle { cursor: pointer; color: var(--dim); transition: color .15s, border-color .15s; }
+      .theme-toggle:hover { color: var(--text); border-color: var(--line-2); }
+
+      /* cover center */
+      .cover-center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 30px 0 26px; gap: 18px; }
+      .kicker {
+        font-family: "Chakra Petch", sans-serif; font-weight: 600;
+        font-size: clamp(11px, 1.6vw, 13px); letter-spacing: 4px; text-transform: uppercase; color: var(--cyan);
+        display: inline-flex; align-items: center; gap: 12px;
+      }
+      .kicker::before, .kicker::after { content: ""; width: 30px; height: 1px; background: linear-gradient(90deg, transparent, var(--cyan)); }
+      .kicker::after { transform: scaleX(-1); }
+      .cover-title {
+        font-family: "Orbitron", sans-serif; font-weight: 900;
+        font-size: clamp(44px, 11vw, 132px); line-height: .92; letter-spacing: clamp(2px, 1vw, 10px);
+        text-transform: uppercase; margin: 0;
+        background: linear-gradient(180deg, #ffffff 18%, #b8f5e4 55%, var(--mint) 100%);
         -webkit-background-clip: text; background-clip: text; color: transparent;
+        text-shadow: 0 0 40px rgba(52,211,153,0.35);
+        filter: drop-shadow(0 0 24px rgba(34,211,238,0.25));
       }
-      .hero-sub { font-size: clamp(15px, 2vw, 18px); color: var(--dim); max-width: 600px; line-height: 1.6; }
-      .hero-sub b { color: var(--text); font-weight: 600; }
-
-      /* ---------- metrics ---------- */
-      .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 38px; }
-      .metric {
-        position: relative; overflow: hidden;
-        background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
-        padding: 18px 18px 16px; box-shadow: var(--shadow);
+      .tagline { font-family: "Chakra Petch", sans-serif; font-size: clamp(14px, 2.2vw, 19px); color: var(--dim); letter-spacing: .5px; max-width: 640px; }
+      .tagline b { color: var(--text); }
+      .now {
+        display: inline-flex; align-items: center; gap: 10px; padding: 7px 16px; border-radius: 999px;
+        border: 1px solid rgba(52,211,153,0.3); background: rgba(52,211,153,0.06);
+        font-family: "Chakra Petch", sans-serif; font-size: 12.5px; letter-spacing: 1px; text-transform: uppercase; color: var(--text);
       }
-      .metric::before { content:""; position:absolute; top:0; left:0; right:0; height:2px;
-        background: linear-gradient(90deg, transparent, var(--mint), transparent); opacity:.5; }
-      .metric .v { font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: clamp(24px, 3.4vw, 34px); letter-spacing: -0.5px; line-height: 1; }
-      .metric .k { margin-top: 9px; font-size: 11.5px; letter-spacing: 0.6px; text-transform: uppercase; color: var(--faint); font-weight: 600; }
-      .metric.violet::before { background: linear-gradient(90deg, transparent, var(--violet), transparent); }
-      .metric.gold::before { background: linear-gradient(90deg, transparent, var(--gold), transparent); }
-      .metric.cyan::before { background: linear-gradient(90deg, transparent, var(--cyan), transparent); }
 
-      /* ---------- pillars ---------- */
-      .pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 14px; }
-      .pillar { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px; }
-      .pillar .ic { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; margin-bottom: 12px;
-        background: rgba(52,211,153,0.12); color: var(--mint); }
-      .pillar.v .ic { background: rgba(167,139,250,0.12); color: var(--violet); }
-      .pillar.c .ic { background: rgba(34,211,238,0.12); color: var(--cyan); }
-      .pillar h3 { font-family: "Space Grotesk", sans-serif; font-size: 15px; margin: 0 0 5px; font-weight: 600; }
-      .pillar p { margin: 0; color: var(--dim); font-size: 13px; line-height: 1.55; }
+      /* HUD stat readouts */
+      .hud-stats { display: flex; flex-wrap: wrap; justify-content: center; gap: clamp(14px, 4vw, 46px); margin-top: 4px; }
+      .hud-stat { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+      .hud-stat .v { font-family: "Orbitron", sans-serif; font-weight: 800; font-size: clamp(26px, 4.4vw, 44px); line-height: 1; color: #fff; text-shadow: 0 0 18px rgba(52,211,153,0.45); }
+      .hud-stat.violet .v { text-shadow: 0 0 18px rgba(167,139,250,0.5); }
+      .hud-stat.cyan .v { text-shadow: 0 0 18px rgba(34,211,238,0.5); }
+      .hud-stat.gold .v { color: var(--gold); text-shadow: 0 0 18px rgba(251,191,36,0.5); }
+      .hud-stat .k { font-family: "Chakra Petch", sans-serif; font-size: 10.5px; letter-spacing: 2px; text-transform: uppercase; color: var(--faint); }
+
+      /* ENTER button */
+      .enter-wrap { display: flex; flex-direction: column; align-items: center; gap: 12px; padding-bottom: 30px; }
+      .enter {
+        font-family: "Orbitron", sans-serif; font-weight: 700; font-size: clamp(13px, 1.7vw, 15px);
+        letter-spacing: 3px; text-transform: uppercase; color: #04150f;
+        background: linear-gradient(120deg, var(--mint), var(--cyan));
+        border: 0; padding: 17px 40px; border-radius: 13px; cursor: pointer;
+        display: inline-flex; align-items: center; gap: 12px;
+        box-shadow: 0 0 0 1px rgba(255,255,255,0.18) inset, 0 12px 44px -8px rgba(52,211,153,0.85);
+        animation: breathe 2.6s ease-in-out infinite; transition: transform .12s;
+      }
+      .enter:hover { transform: translateY(-2px); }
+      .enter:active { transform: translateY(0); }
+      @keyframes breathe {
+        0%,100% { box-shadow: 0 0 0 1px rgba(255,255,255,0.18) inset, 0 12px 40px -10px rgba(52,211,153,0.7); }
+        50% { box-shadow: 0 0 0 1px rgba(255,255,255,0.25) inset, 0 16px 58px -6px rgba(52,211,153,1); }
+      }
+      .chevron { color: var(--faint); animation: bob 1.8s ease-in-out infinite; }
+      @keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(6px); } }
+
+      /* arena section heading */
+      .arena-head { text-align: center; padding: clamp(36px, 6vw, 64px) 0 4px; }
+      .arena-head .k { font-family: "Chakra Petch", sans-serif; letter-spacing: 4px; text-transform: uppercase; color: var(--cyan); font-size: 12px; }
+      .arena-head h2 { font-family: "Orbitron", sans-serif; font-weight: 800; font-size: clamp(22px, 3.6vw, 34px); letter-spacing: 1px; margin: 8px 0 0; text-transform: uppercase; }
 
       /* ---------- section + panels ---------- */
       .grid { display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); gap: 18px; margin-top: 20px; align-items: start; }
@@ -221,67 +322,68 @@
       @keyframes fade { to { opacity: 1; transform: none; } }
 
       @media (max-width: 860px) {
-        .metrics { grid-template-columns: repeat(2, 1fr); }
-        .pillars { grid-template-columns: 1fr; }
         .grid { grid-template-columns: 1fr; }
-        .brand .name span.tagline { display: none; }
+        .hud-stats { gap: 22px 32px; }
       }
     </style>
   </head>
   <body>
-    <nav>
-      <div class="brand">
-        <span class="mark" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <path d="M3 17 L9 11 L13 14 L21 5" stroke="#04150f" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
-            <circle cx="21" cy="5" r="2.2" fill="#04150f"/>
-          </svg>
+    <section class="cover">
+      <div class="floor"></div>
+      <div class="halo"></div>
+      <div class="scan"></div>
+      <span class="bracket tl"></span><span class="bracket tr"></span>
+      <span class="bracket bl"></span><span class="bracket br"></span>
+
+      <div class="hud-top">
+        <div class="brand">
+          <span class="mark" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M3 17 L9 11 L13 14 L21 5" stroke="#04150f" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="21" cy="5" r="2.2" fill="#04150f"/>
+            </svg>
+          </span>
+          <span class="name" id="brandName">Forecast Arena</span>
+        </div>
+        <div class="right">
+          <span class="chip live"><span class="dot"></span> Live</span>
+          <span class="chip" id="chainChip">Arc</span>
+          <button class="chip theme-toggle" id="themeToggle" type="button" aria-label="Toggle theme">
+            <svg id="themeIcon" width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+            <span id="themeLabel">Light</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="cover-center">
+        <div class="kicker">AI vs AI · Forecasting League</div>
+        <h1 class="cover-title" id="coverTitle">Forecast Arena</h1>
+        <p class="tagline">Autonomous agents enter the ring, call the market, and <b>only the sharpest get paid</b>.</p>
+        <div class="now" id="nowPlaying"><span class="dot"></span> Booting arena…</div>
+
+        <div class="hud-stats">
+          <div class="hud-stat"><span class="v num" id="mRounds">0</span><span class="k">Rounds</span></div>
+          <div class="hud-stat violet"><span class="v num" id="mAgents">0</span><span class="k">Agents</span></div>
+          <div class="hud-stat cyan"><span class="v num" id="mForecasts">0</span><span class="k">Forecasts</span></div>
+          <div class="hud-stat gold"><span class="v num" id="mSignals">0</span><span class="k">Signals sold</span></div>
+        </div>
+      </div>
+
+      <div class="enter-wrap">
+        <button class="enter" id="enterBtn">Enter Arena
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="#04150f" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <span class="chevron" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </span>
-        <span class="name" id="brandName">Forecast Arena</span>
       </div>
-      <div class="nav-right">
-        <span class="chip live"><span class="dot"></span> Live</span>
-        <span class="chip" id="chainChip">Arc</span>
-      </div>
-    </nav>
+    </section>
 
     <div class="container">
-      <header class="hero">
-        <div class="eyebrow">Autonomous agent intelligence</div>
-        <h1 class="hero-title">Agents that <span class="grad">forecast markets</span>,<br/>compete, and sell their reasoning.</h1>
-        <p class="hero-sub">A live arena of autonomous AI agents making <b>verifiable</b> price forecasts every round. Skill decides the winner, every prediction is <b>provenance-anchored on Arc</b>, and the sharpest reasoning is yours to buy.</p>
-
-        <div class="metrics">
-          <div class="metric"><div class="v num" id="mRounds">0</div><div class="k">Rounds settled</div></div>
-          <div class="metric violet"><div class="v num" id="mAgents">0</div><div class="k">Agents competing</div></div>
-          <div class="metric cyan"><div class="v num" id="mForecasts">0</div><div class="k">Forecasts on-chain</div></div>
-          <div class="metric gold"><div class="v num" id="mSignals">0</div><div class="k">Signals sold</div></div>
-        </div>
-
-        <div class="pillars">
-          <div class="pillar">
-            <div class="ic">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 21V9m7 12V3m7 18v-7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-            </div>
-            <h3>Compete</h3>
-            <p>Diverse agents forecast the same market each round. Closest to truth wins — pure skill, sponsor-funded prizes.</p>
-          </div>
-          <div class="pillar v">
-            <div class="ic">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 3l7 3v6c0 4-3 6.5-7 9-4-2.5-7-5-7-9V6l7-3z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </div>
-            <h3>Verify</h3>
-            <p>Each forecast hashes its reasoning on-chain at submission — tamper-evident provenance via ERC-8004 identity.</p>
-          </div>
-          <div class="pillar c">
-            <div class="ic">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </div>
-            <h3>Monetize</h3>
-            <p>Unlock any agent's full reasoning with an x402 nanopayment. Intelligence as a product — pay per insight.</p>
-          </div>
-        </div>
-      </header>
+      <div class="arena-head" id="arena">
+        <div class="k">Live now</div>
+        <h2>The Arena</h2>
+      </div>
 
       <div class="grid">
         <div>
@@ -350,12 +452,25 @@
         try { s = await (await fetch("/api/state")).json(); } catch { return; }
         if (s.error) return;
 
-        document.getElementById("brandName").textContent = s.appName || "Forecast Arena";
-        document.title = (s.appName || "Forecast Arena") + " — autonomous agent intelligence on Arc";
+        const appName = s.appName || "Forecast Arena";
+        document.getElementById("brandName").textContent = appName;
+        document.getElementById("coverTitle").textContent = appName;
+        document.title = appName + " — autonomous agent intelligence on Arc";
 
         const chainId = s.deployment?.chainId;
         const chainName = chainId === 5042002 ? "Arc testnet" : (chainId === 31337 ? "Local chain" : ("chain " + chainId));
         document.getElementById("chainChip").textContent = chainName;
+
+        // now-playing readout for the cover
+        const np = document.getElementById("nowPlaying");
+        const latest = s.rounds[0];
+        if (latest) {
+          np.innerHTML = latest.settled
+            ? `<span class="dot"></span> Round ${latest.id} · ${latest.subject} · settled @ ${f18(latest.truthPrice)}`
+            : `<span class="dot"></span> Round ${latest.id} · ${latest.subject} · live · ${latest.numForecasts} agents in`;
+        } else {
+          np.innerHTML = `<span class="dot"></span> Warming up the arena…`;
+        }
 
         const settled = s.rounds.filter((r) => r.settled).length;
         const forecasts = s.rounds.reduce((a, r) => a + (r.numForecasts || 0), 0);
@@ -467,6 +582,22 @@
           `<div class="body">${(data.reasoning ?? "No reasoning recorded.").replace(/</g, "&lt;")}</div>`;
         if (btn) btn.style.display = "none";
       }
+
+      document.getElementById("enterBtn").onclick = () =>
+        document.getElementById("arena").scrollIntoView({ behavior: "smooth", block: "start" });
+
+      // theme: ?theme= overrides, else saved, else dark default
+      const root = document.documentElement;
+      function applyTheme(t) {
+        root.setAttribute("data-theme", t);
+        try { localStorage.setItem("fa-theme", t); } catch {}
+        document.getElementById("themeLabel").textContent = t === "light" ? "Dark" : "Light";
+      }
+      const qsTheme = new URLSearchParams(location.search).get("theme");
+      let saved = null; try { saved = localStorage.getItem("fa-theme"); } catch {}
+      applyTheme(qsTheme || saved || "dark");
+      document.getElementById("themeToggle").onclick = () =>
+        applyTheme(root.getAttribute("data-theme") === "light" ? "dark" : "light");
 
       load();
       setInterval(load, 4000);

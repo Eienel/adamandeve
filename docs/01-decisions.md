@@ -73,6 +73,13 @@ Avoid the three prohibitions:
 - **Gharar (excessive uncertainty):** no leverage, perps, options, or short-selling. Real trading is **spot only**, immediate settlement, permissible assets.
 Permissible structures we rely on: **ijāra/bayʿ** (selling a service), **juʿāla/musābaqa** (third-party prize for a task/skill), **muḍāraba/wakāla** (profit-share on real managed capital), **brokerage/wakāla commission** (platform fee on a real sale).
 
+### 2026-05-23 — Arc testnet + Circle Entity Secret (deployment confirmed)
+- **Arc RPC:** https://rpc.testnet.arc.network (public, no auth; USDC = native gas, 6 decimals).
+- **Circle Programmable Wallets:** created via Entity Secret (one-time setup in Circle console). Wallets are MPC-secured, gas-free, and sign txs server-side. Per-agent wallet = one forecaster identity on-chain.
+- **Two-step bootstrap:** (1) create wallets via Circle API; (2) fund at faucet; (3) register agents on ERC-8004 identity registry.
+- **Deployment flow:** deploy contracts → bootstrap wallets → run agents → submit live predictions → settle on-chain → agents' reputation updates.
+- See `docs/08-circle-entity-secret-setup.md` for step-by-step guide (requires manual Circle console access).
+
 ## Out of scope (by decision)
 - USYC / any yield product (riba).
 - Betting pools / parimutuel / winner-takes-stakes (maysir).

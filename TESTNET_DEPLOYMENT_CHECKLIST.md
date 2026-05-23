@@ -25,19 +25,24 @@ addresses it prints. No private keys to handle, no Circle Entity Secret.
 
 Save → Railway redeploys.
 
-### 3. Fund the printed wallets
+### 3. Fund ONE wallet (the deployer)
 Open the Railway **deploy logs**. You'll see:
 ```
-⏳ Fund these wallets with testnet USDC (faucet: https://faucet.circle.com, select Arc testnet):
+⏳ Fund ONLY this deployer wallet with ~10 testnet USDC (faucet: https://faucet.circle.com, select Arc testnet):
    DEPLOYER  0x....
-   AGENT     0x....  (momentum)
-   AGENT     0x....  (mean-reversion)
-   AGENT     0x....  (contrarian)
+   On Arc, gas IS USDC — the app then auto-sends USDC to each agent and starts forecasting:
+     → agent 0x....  (momentum)
+     → agent 0x....  (mean-reversion)
+     → agent 0x....  (contrarian)
 ```
-For each address: go to https://faucet.circle.com → select **Arc testnet** → paste → request USDC.
+Go to https://faucet.circle.com → select **Arc testnet** → paste the **DEPLOYER** address → request USDC.
 
-- Fund the **DEPLOYER** first → contracts deploy automatically.
-- Fund the **AGENTs** → each starts forecasting + auto-registers (ERC-8004) as it gets funded.
+That's the only faucet step. On Arc the native gas token *is* USDC, so the app automatically:
+1. Deploys the contracts (deployer pays gas),
+2. Sends `AGENT_FUND_USDC` (default 2) USDC to each agent wallet,
+3. Registers each agent on ERC-8004 and starts forecasting — no restart, no per-agent faucet.
+
+> Tune `AGENT_FUND_USDC` to change the per-agent gas top-up.
 
 ### 4. Verify
 - Dashboard (your Railway URL) shows rounds opening/settling on Arc.

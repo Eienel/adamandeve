@@ -1,9 +1,11 @@
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { keccak256, toBytes, parseUnits } from "viem";
 import {
   loadDeployment,
   makePublicClient,
+  makeWalletClient,
   forecastArenaAbi,
   store,
 } from "@arena/shared";
@@ -217,6 +219,73 @@ app.get("/api/agents/verify", (req, res) => {
   if (!agent) return res.status(401).json({ error: "invalid api key" });
 
   res.json({ agentId: agent.agentId, name: agent.name, address: agent.address, strategy: agent.strategy });
+});
+
+// ========== PHASE 2b: AGENT PREDICTION SUBMISSION ==========
+
+// Submit a prediction from an external agent
+app.post("/api/rounds/:id/predict", async (req, res) => {
+  try {
+    const roundId = Number(req.params.id);
+    const apiKey = req.header("authorization")?.replace("Bearer ", "");
+    const { prediction, reasoning } = req.body;
+
+    if (!apiKey) return res.status(401).json({ error: "missing authorization header" });
+    if (typeof prediction !== "number") return res.status(400).json({ error: "invalid prediction" });
+
+    // Authenticate agent
+    const agent = store.listAgents().find((a) => a.apiKey === apiKey);
+    if (!agent) return res.status(401).json({ error: "invalid api key" });
+
+    // Get deployment & wallet for on-chain submission
+    const d = dep();
+    const deployerKey = (process.env.DEPLOYER_PRIVATE_KEY ?? "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80") as `0x${string}`;
+    const wallet = makeWalletClient(deployerKey);
+
+    // Hash reasoning
+    const reasoningText = reasoning ?? `Prediction: ${prediction}`;
+    const traceHash = keccak256(toBytes(reasoningText));
+
+    // Submit forecast on-chain
+    const value = parseUnits(prediction.toFixed(6), 18);
+    const txHash = await wallet.writeContract({
+      address: d.forecastArena,
+      abi: forecastArenaAbi,
+      functionName: "submitForecast",
+      args: [BigInt(roundId), value, traceHash, BigInt(agent.agentId ?? 0)],
+      account: wallet.account!,
+      chain: wallet.chain,
+    });
+
+    // Wait for receipt
+    const pub = makePublicClient();
+    await pub.waitForTransactionReceipt({ hash: txHash });
+
+    // Store trace
+    store.addTrace({
+      roundId,
+      agent: agent.address,
+      agentName: agent.name,
+      agentId: agent.agentId ?? "0",
+      value: value.toString(),
+      reasoning: reasoningText,
+      traceHash,
+      strategy: agent.strategy,
+      createdAt: Date.now(),
+      txHash,
+    });
+
+    res.json({
+      success: true,
+      roundId,
+      agentId: agent.agentId,
+      txHash,
+      traceHash,
+      prediction,
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
 });
 
 app.use(express.static(path.resolve(__dirname, "../public")));

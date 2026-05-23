@@ -19,13 +19,14 @@ export function createCircleClient(): CircleClient {
 }
 
 /** One-time Entity Secret setup: generate a 32-byte secret (if none passed) and register it
- *  against your existing Circle API key. Returns the secret to store + the recovery file. */
+ *  against your existing Circle API key. Returns the secret to store + the recovery file.
+ *  recoveryDir must be an existing DIRECTORY; the SDK writes recovery_file_<ts>.dat into it. */
 export async function registerCircleEntitySecret(
   apiKey: string,
   entitySecret = crypto.randomBytes(32).toString("hex"),
-  recoveryFileDownloadPath = "./circle-recovery-file.dat",
+  recoveryDir = ".",
 ): Promise<{ entitySecret: string; recoveryFile: string }> {
-  const res = await registerEntitySecretCiphertext({ apiKey, entitySecret, recoveryFileDownloadPath });
+  const res = await registerEntitySecretCiphertext({ apiKey, entitySecret, recoveryFileDownloadPath: recoveryDir });
   return { entitySecret, recoveryFile: res.data?.recoveryFile ?? "" };
 }
 

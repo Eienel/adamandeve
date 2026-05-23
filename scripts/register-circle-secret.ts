@@ -24,8 +24,8 @@ async function main() {
   console.log("\n✅ Registered. Add this to your Railway environment variables:\n");
   console.log("  CIRCLE_ENTITY_SECRET=" + entitySecret);
   console.log("\n(Your CIRCLE_API_KEY stays as-is.)");
-  console.log("\nRecovery file saved to ./circle-recovery-file.dat — store it somewhere safe,");
-  console.log("then DELETE it from this repo (never commit it). recoveryFile bytes:", recoveryFile.length);
+  console.log("\nRecovery file saved as ./recovery_file_<timestamp>.dat — store it somewhere safe,");
+  console.log("then DELETE it from this repo (it's gitignored). recoveryFile bytes:", recoveryFile.length);
 }
 
 main().catch((e) => {

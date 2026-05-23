@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { parseUnits, formatUnits, type Address } from "viem";
 import { loadDeployment, makePublicClient, forecastArenaAbi, store, Mode } from "@arena/shared";
@@ -22,6 +24,32 @@ type Forecaster = { name: string; address: Address; forecastRound: (roundId: num
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8545";
 const IS_ARC = RPC.includes("arc.network");
 const STRATEGIES = ["momentum", "mean-reversion", "contrarian"] as const;
+
+/** Persistent state dir. On Railway, mount a volume here so deployment + Circle wallets
+ *  survive redeploys (otherwise every restart re-deploys contracts and spawns NEW unfunded
+ *  agent wallets). Defaults to cwd for local dev. Set DATA_DIR=/data + mount a volume on Railway. */
+const DATA_DIR = process.env.DATA_DIR ?? process.cwd();
+function dataPath(name: string): string {
+  return path.join(DATA_DIR, name);
+}
+
+interface PersistedWallet { address: Address; id: string; agentId: string; name: string; strategy: (typeof STRATEGIES)[number] }
+function walletsFile(): string {
+  return process.env.AGENT_WALLETS_FILE ?? dataPath("agent-wallets.arc.json");
+}
+function loadPersistedWallets(): PersistedWallet[] {
+  try {
+    const f = walletsFile();
+    if (!fs.existsSync(f)) return [];
+    return JSON.parse(fs.readFileSync(f, "utf8")) as PersistedWallet[];
+  } catch {
+    return [];
+  }
+}
+function savePersistedWallets(w: PersistedWallet[]): void {
+  fs.writeFileSync(walletsFile(), JSON.stringify(w, null, 2));
+}
+
 
 async function rpcUp(): Promise<boolean> {
   try {
@@ -50,6 +78,12 @@ async function runToCompletion(cmd: string, args: string[]): Promise<void> {
 }
 
 async function main() {
+  // 0. Persistent state. Point deployment + arena data at DATA_DIR (a Railway volume in prod)
+  //    so they survive restarts. Set BEFORE spawning the API child so it inherits the paths.
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  process.env.DEPLOYMENTS_FILE ??= dataPath(IS_ARC ? "deployments.arc.json" : "deployments.local.json");
+  process.env.ARENA_DATA_FILE ??= dataPath("arena-data.json");
+
   // 1. Dashboard/API first so the web port binds immediately (Railway health check).
   spawnInherit("pnpm", ["exec", "tsx", "apps/api/src/index.ts"]);
 
@@ -89,13 +123,30 @@ async function main() {
   const agents: Forecaster[] = [];
   if (IS_ARC) {
     const client = createCircleClient();
-    console.log(`Creating ${fleetSize} Circle wallets on Arc...`);
-    const wallets = await createAgentWallets(client, fleetSize);
-    for (let i = 0; i < wallets.length; i++) {
-      const strategy = STRATEGIES[i % STRATEGIES.length];
-      const agentId = await registerAgentViaCircle(client, wallets[i].address, dep.identityRegistry, `ipfs://agent-${i}-${strategy}`);
-      agents.push(new CircleAgent({ name: `Agent-${i}-${strategy}`, strategy, client, walletAddress: wallets[i].address, arena: dep.forecastArena, agentId }));
-      console.log(`  ${wallets[i].address} agentId=${agentId}`);
+    // Reuse wallets from a previous run if we have enough persisted (avoids spawning new
+    // unfunded wallets on every Railway restart). Otherwise create + register the fleet once.
+    const persisted = loadPersistedWallets();
+    if (persisted.length >= fleetSize) {
+      console.log(`Reusing ${fleetSize} persisted Circle wallets from ${walletsFile()}`);
+      for (let i = 0; i < fleetSize; i++) {
+        const p = persisted[i];
+        agents.push(new CircleAgent({ name: p.name, strategy: p.strategy, client, walletAddress: p.address, arena: dep.forecastArena, agentId: BigInt(p.agentId) }));
+        console.log(`  ${p.address} agentId=${p.agentId} (${p.strategy})`);
+      }
+    } else {
+      console.log(`Creating ${fleetSize} Circle wallets on Arc...`);
+      const wallets = await createAgentWallets(client, fleetSize);
+      const toSave: PersistedWallet[] = [];
+      for (let i = 0; i < wallets.length; i++) {
+        const strategy = STRATEGIES[i % STRATEGIES.length];
+        const name = `Agent-${i}-${strategy}`;
+        const agentId = await registerAgentViaCircle(client, wallets[i].address, dep.identityRegistry, `ipfs://agent-${i}-${strategy}`);
+        agents.push(new CircleAgent({ name, strategy, client, walletAddress: wallets[i].address, arena: dep.forecastArena, agentId }));
+        toSave.push({ address: wallets[i].address, id: wallets[i].id, agentId: agentId.toString(), name, strategy });
+        console.log(`  ${wallets[i].address} agentId=${agentId}`);
+      }
+      savePersistedWallets(toSave);
+      console.log(`Saved wallet fleet to ${walletsFile()} (persist this volume to reuse on restart).`);
     }
   } else {
     for (let i = 0; i < fleetSize; i++) {

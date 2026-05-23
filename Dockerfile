@@ -18,8 +18,9 @@ RUN pnpm install --frozen-lockfile \
 # Local embedded-chain defaults (override RPC_URL etc. to target Arc).
 ENV RPC_URL=http://127.0.0.1:8545
 ENV DEPLOYER_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
-ENV DEPLOYMENTS_FILE=/app/deployments.local.json
-ENV ARENA_DATA_FILE=/app/arena-data.json
+# Persistent state dir. Mount a Railway volume here to keep deployment + Circle wallets
+# across redeploys. serve.ts derives deployments/arena-data/agent-wallets paths from it.
+ENV DATA_DIR=/data
 ENV FLEET_SIZE=3
 ENV APP_NAME="Forecast Arena"
 

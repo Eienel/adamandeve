@@ -68,6 +68,20 @@ Railway redeploys automatically when you save a variable.
 
 > Local dev equivalent: `cp .env.example .env` and put the same keys there.
 
+### Step 2b: Add a Railway Volume (REQUIRED for Arc)
+
+Railway containers have an **ephemeral filesystem** — without a volume, every redeploy/restart
+would re-deploy contracts AND create brand-new Circle agent wallets (which then need funding again).
+A volume makes the deployment + wallet fleet survive restarts.
+
+1. In your Railway service → **Settings** → **Volumes** → **New Volume**.
+2. Set the **mount path** to `/data`.
+3. Save. (The app already sets `DATA_DIR=/data` and writes `deployments.arc.json`,
+   `arena-data.json`, and `agent-wallets.arc.json` there.)
+
+On the next start, the app reuses the persisted deployment + wallets instead of recreating them.
+You only fund the agent wallets **once**.
+
 ## Step 3: Deploy Contracts to Arc
 
 ```bash

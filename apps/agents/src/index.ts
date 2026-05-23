@@ -5,6 +5,8 @@ export {
   createCircleClient,
   createAgentWallets,
   registerAgentViaCircle,
+  circleExec,
   type CircleClient,
   type AgentWallet,
 } from "./circleWallet.js";
+export { CircleAgent, type CircleAgentConfig } from "./circleAgent.js";

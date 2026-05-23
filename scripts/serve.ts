@@ -3,8 +3,17 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { parseUnits, formatUnits, type Address } from "viem";
 import { loadDeployment, makePublicClient, forecastArenaAbi, store, Mode } from "@arena/shared";
 import { Resolver, PriceFeed } from "@arena/resolver";
-import { Agent, registerAgent } from "@arena/agents";
+import {
+  Agent,
+  CircleAgent,
+  registerAgent,
+  createCircleClient,
+  createAgentWallets,
+  registerAgentViaCircle,
+} from "@arena/agents";
 import { ANVIL_KEYS } from "./anvilKeys.js";
+
+type Forecaster = { name: string; address: Address; forecastRound: (roundId: number, ctx: any) => Promise<{ value: number; txHash: string }> };
 
 /** All-in-one entrypoint for a single Railway service:
  *  embedded chain (if none) → deploy → continuous agent rounds + dashboard/API.
@@ -76,17 +85,27 @@ async function main() {
   const gap = Number(process.env.ROUND_GAP_SEC ?? 10);
   const fleetSize = Math.min(Number(process.env.FLEET_SIZE ?? 3), ANVIL_KEYS.length - 1);
 
-  // 4. Register the fleet once (local keys only; Arc would use Circle wallets).
-  const agents: Agent[] = [];
-  if (!IS_ARC) {
+  // 4. Register the fleet once. Arc -> Circle Programmable Wallets (gas-free); local -> anvil keys.
+  const agents: Forecaster[] = [];
+  if (IS_ARC) {
+    const client = createCircleClient();
+    console.log(`Creating ${fleetSize} Circle wallets on Arc...`);
+    const wallets = await createAgentWallets(client, fleetSize);
+    for (let i = 0; i < wallets.length; i++) {
+      const strategy = STRATEGIES[i % STRATEGIES.length];
+      const agentId = await registerAgentViaCircle(client, wallets[i].address, dep.identityRegistry, `ipfs://agent-${i}-${strategy}`);
+      agents.push(new CircleAgent({ name: `Agent-${i}-${strategy}`, strategy, client, walletAddress: wallets[i].address, arena: dep.forecastArena, agentId }));
+      console.log(`  ${wallets[i].address} agentId=${agentId}`);
+    }
+  } else {
     for (let i = 0; i < fleetSize; i++) {
       const key = ANVIL_KEYS[i + 1];
       const strategy = STRATEGIES[i % STRATEGIES.length];
       const agentId = await registerAgent(key, dep.identityRegistry, `ipfs://agent-${i}-${strategy}`);
       agents.push(new Agent({ name: `Agent-${i}-${strategy}`, strategy, privateKey: key, arena: dep.forecastArena, agentId }));
     }
-    console.log(`Fleet of ${agents.length} registered. Running rounds every ~${horizon + gap}s.`);
   }
+  console.log(`Fleet of ${agents.length} registered. Running rounds every ~${horizon + gap}s.`);
 
   // 5. Continuous round loop.
   let n = 0;
@@ -109,7 +128,7 @@ async function main() {
       const w = store.getTrace(roundId, result.winner);
       console.log(`Round ${roundId} settled — winner ${w?.agentName ?? result.winner} @ ${feed.current().toFixed(2)}`);
 
-      if (++n % 5 === 0) await managedSwap(dep, pub, deployerKey, (n / 5) % 2 === 0).catch(() => {});
+      if (!IS_ARC && ++n % 5 === 0) await managedSwap(dep, pub, deployerKey, (n / 5) % 2 === 0).catch(() => {});
     } catch (e) {
       console.error("round error:", String(e));
     }

@@ -114,6 +114,6 @@ app.post("/api/signal/:roundId/:agent/pay", (req, res) => {
 
 app.use(express.static(path.resolve(__dirname, "../public")));
 
-app.listen(PORT, () => {
-  console.log(`${APP_NAME} dashboard + API on http://localhost:${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`${APP_NAME} dashboard + API listening on 0.0.0.0:${PORT}`);
 });

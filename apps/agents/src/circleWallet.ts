@@ -44,6 +44,35 @@ async function waitForTx(client: CircleClient, id: string): Promise<string> {
   throw new Error("Circle tx timed out");
 }
 
+/** Submit a contract call from a Circle wallet on Arc (gas-sponsored) and wait for it.
+ *  Returns the on-chain txHash. */
+export async function circleExec(
+  client: CircleClient,
+  walletAddress: Address,
+  contractAddress: Address,
+  abiFunctionSignature: string,
+  abiParameters: (string | number | boolean)[],
+): Promise<string> {
+  const tx = await client.createContractExecutionTransaction({
+    walletAddress,
+    blockchain: "ARC-TESTNET",
+    contractAddress,
+    abiFunctionSignature,
+    abiParameters,
+    fee: { type: "level", config: { feeLevel: "MEDIUM" } },
+  });
+  const id = tx.data?.id;
+  if (!id) throw new Error("Circle tx not created");
+  for (let i = 0; i < 40; i++) {
+    await new Promise((r) => setTimeout(r, 3000));
+    const { data } = await client.getTransaction({ id });
+    const st = data?.transaction?.state;
+    if (st === "COMPLETE" || st === "CONFIRMED") return data!.transaction!.txHash!;
+    if (st === "FAILED") throw new Error(`Circle tx failed: ${data?.transaction?.errorReason ?? ""}`);
+  }
+  throw new Error("Circle tx timed out");
+}
+
 /** Register an ERC-8004 identity for a Circle wallet and return the minted agentId. */
 export async function registerAgentViaCircle(
   client: CircleClient,

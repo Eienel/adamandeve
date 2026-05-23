@@ -82,8 +82,7 @@ async function main() {
   const resolver = new Resolver(deployerKey, dep.forecastArena);
   const feed = new PriceFeed("ETH-USD", 3000, 0.006);
   await feed.init();
-  const horizon = Number(process.env.HORIZON_SEC ?? 20);
-  const gap = Number(process.env.ROUND_GAP_SEC ?? 10);
+  const fastHorizon = Number(process.env.HORIZON_SEC ?? 60);
   const fleetSize = Math.min(Number(process.env.FLEET_SIZE ?? 3), ANVIL_KEYS.length - 1);
 
   // 4. Register the fleet once. Arc -> Circle Programmable Wallets (gas-free); local -> anvil keys.
@@ -106,34 +105,45 @@ async function main() {
       agents.push(new Agent({ name: `Agent-${i}-${strategy}`, strategy, privateKey: key, arena: dep.forecastArena, agentId }));
     }
   }
-  console.log(`Fleet of ${agents.length} registered. Running rounds every ~${horizon + gap}s.`);
+  // 5. Continuous multi-horizon round loop. Each "track" is an independent forecast horizon
+  //    (e.g. 1m volume workhorse + 5m). Tracks run concurrently: a track opens a round, the
+  //    fleet forecasts once, and it settles when its horizon elapses. High-frequency short
+  //    rounds compound a verifiable on-chain accuracy record per agent across timeframes —
+  //    that track record is what makes an agent's sold reasoning valuable.
+  const label = (s: number) => (s % 3600 === 0 ? `${s / 3600}h` : s % 60 === 0 ? `${s / 60}m` : `${s}s`);
+  const horizons = (process.env.HORIZONS ?? `${fastHorizon},300`)
+    .split(",").map((s) => Number(s.trim())).filter((n) => n > 0);
+  const tracks = horizons.map((sec) => ({ sec, label: label(sec), open: undefined as undefined | { id: number; closeMs: number } }));
+  console.log(`Fleet of ${agents.length} registered. Horizon tracks: ${tracks.map((t) => t.label).join(", ")}.`);
 
-  // 5. Continuous round loop.
-  let n = 0;
+  let settleCount = 0;
   while (true) {
-    try {
-      for (let k = 0; k < 15; k++) feed.tick();
-      const roundId = await resolver.openRound(Mode.SpotClose, horizon, "ETH/USDC");
-      for (const agent of agents) {
-        const ctx = { subject: "ETH/USDC", history: feed.recent(15), current: feed.current(), horizonSec: horizon };
-        await agent.forecastRound(roundId, ctx);
-        feed.tick();
+    const now = Date.now();
+    for (const tr of tracks) {
+      try {
+        if (!tr.open) {
+          const subject = `ETH/USDC · ${tr.label}`;
+          const roundId = await resolver.openRound(Mode.SpotClose, tr.sec, subject);
+          for (const agent of agents) {
+            const ctx = { subject, history: feed.recent(15), current: feed.current(), horizonSec: tr.sec };
+            await agent.forecastRound(roundId, ctx);
+          }
+          tr.open = { id: roundId, closeMs: now + tr.sec * 1000 };
+          console.log(`Opened round ${roundId} (${tr.label}) @ ${feed.current().toFixed(2)}`);
+        } else if (now >= tr.open.closeMs) {
+          const result = await resolver.settle(tr.open.id, feed.current());
+          await resolver.pushReputation(tr.open.id, agents.map((a) => a.address) as Address[]);
+          const w = store.getTrace(tr.open.id, result.winner);
+          console.log(`Round ${tr.open.id} (${tr.label}) settled — winner ${w?.agentName ?? result.winner} @ ${feed.current().toFixed(2)}`);
+          tr.open = undefined;
+          if (!IS_ARC && ++settleCount % 5 === 0) await managedSwap(dep, pub, deployerKey, (settleCount / 5) % 2 === 0).catch(() => {});
+        }
+      } catch (e) {
+        console.error(`track ${tr.label} error:`, String(e));
       }
-      const end = Date.now() + horizon * 1000;
-      while (Date.now() < end) {
-        feed.tick();
-        await sleep(500);
-      }
-      const result = await resolver.settle(roundId, feed.current());
-      await resolver.pushReputation(roundId, agents.map((a) => a.address) as Address[]);
-      const w = store.getTrace(roundId, result.winner);
-      console.log(`Round ${roundId} settled — winner ${w?.agentName ?? result.winner} @ ${feed.current().toFixed(2)}`);
-
-      if (!IS_ARC && ++n % 5 === 0) await managedSwap(dep, pub, deployerKey, (n / 5) % 2 === 0).catch(() => {});
-    } catch (e) {
-      console.error("round error:", String(e));
     }
-    await sleep(gap * 1000);
+    feed.tick();
+    await sleep(2000);
   }
 }
 

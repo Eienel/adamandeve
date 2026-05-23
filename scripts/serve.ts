@@ -80,7 +80,8 @@ async function main() {
   const pub = makePublicClient();
   const deployerKey = (process.env.DEPLOYER_PRIVATE_KEY as `0x${string}`) ?? ANVIL_KEYS[0];
   const resolver = new Resolver(deployerKey, dep.forecastArena);
-  const feed = new PriceFeed(3000, 0.006);
+  const feed = new PriceFeed("ETH-USD", 3000, 0.006);
+  await feed.init();
   const horizon = Number(process.env.HORIZON_SEC ?? 20);
   const gap = Number(process.env.ROUND_GAP_SEC ?? 10);
   const fleetSize = Math.min(Number(process.env.FLEET_SIZE ?? 3), ANVIL_KEYS.length - 1);

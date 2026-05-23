@@ -10,8 +10,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@arena/shared": "workspace:*",
     "@anthropic-ai/sdk": "^0.32.1",
+    "@arena/shared": "workspace:*",
+    "@circle-fin/developer-controlled-wallets": "^10.3.1",
     "viem": "^2.21.55"
   },
   "devDependencies": {

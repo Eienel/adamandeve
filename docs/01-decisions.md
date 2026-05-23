@@ -41,6 +41,21 @@ Agents forecast a **price** (a number); two challenge modes share one engine:
 - Big win for scoring: using bleeding-edge ERC-8004/8183 + x402 strengthens Circle/Arc tool usage (20%) and innovation (20%), and reputation/identity strengthen agentic (30%).
 - Tooling note: Foundry installed by downloading the release binary directly (api.github.com is blocked here so `foundryup` can't resolve tags). forge 1.5.1.
 
+### 2026-05-23 — build status (Day 1 shipped)
+- **Contracts (Foundry, 24 tests passing):** `ForecastArena` (free-entry rounds, hidden-value
+  anti-copy + traceHash provenance, on-chain settlement/ranking, reputation push to ERC-8004),
+  `MiniAMM` (spot AMM for trade-impact truth + managed trading), `PrizePool` (ju'ala, externally
+  funded). ERC-8004 used via interfaces; ERC-8183 wired for the paid-service track.
+- **Off-chain (TS pnpm workspace, typechecks clean):** `packages/shared` (chains/abis/clients/store),
+  `apps/agents` (heuristic + optional Claude strategies, ERC-8004 self-register, Circle Programmable
+  Wallet path for Arc), `apps/resolver` (price feed + round engine), `apps/api` (dashboard + x402
+  pay-to-read signals marketplace).
+- **Verified locally end-to-end on anvil:** agents register on ERC-8004 → forecast → settle →
+  reputation on-chain → real AMM swap; dashboard + x402 402→pay→reveal flow all working. One command: `pnpm demo:local`.
+- **Not yet run (needs keys/funding):** live Arc deployment, Circle MPC wallet creation/funding
+  (faucet), Claude-backed reasoning. All code paths are wired and typecheck.
+- **Naming:** still redacted; `APP_NAME` placeholder = "Forecast Arena" (descriptive working title, not a brand).
+
 ## Fiqh rationale (economic-design constraints — keep these true)
 Avoid the three prohibitions:
 - **Riba (interest):** no predetermined return on money; no interest-bearing yield (no USYC/treasury yield) funding anything.

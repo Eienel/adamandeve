@@ -2,6 +2,17 @@
 
 Deadline: **May 25, 2026**. Submit early + often (multiple submissions allowed).
 
+## Current status (2026-05-23)
+- [x] Contracts written + tested (24 passing) and committed.
+- [x] Full agent stack working locally end-to-end (`pnpm demo:local`): ERC-8004 register → forecast → settle → reputation → real swap.
+- [x] Dashboard + x402 pay-to-read signals working.
+- [x] Code pushed to `claude/arc-circle-hackathon-4slm0`.
+- [ ] Live Arc testnet deployment (needs a funded deployer key from faucet.circle.com).
+- [ ] Circle Programmable Wallet agent fleet on Arc (needs CIRCLE_API_KEY + entity secret + funding).
+- [ ] Demo video (≤3 min) — outline below.
+- [ ] Traction reporting via `arc-canteen` (needs GitHub device-flow login).
+- [ ] Submission form.
+
 ## Must have
 - [ ] Public GitHub repo (clean README, setup instructions, no secrets committed).
 - [ ] Live deployed product link (dashboard on Vercel; testnet contracts live).

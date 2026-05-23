@@ -17,5 +17,8 @@ deployments.local.json
 deployments.arc.json
 arena-data.json
 agent-wallets.arc.json
+agent-keys.arc.json
+deployer-key.arc.json
 circle-recovery-file.dat
+recovery_file_*.dat
 *.recovery.dat

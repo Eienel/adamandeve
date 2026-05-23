@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { parseUnits, formatUnits, type Address } from "viem";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { loadDeployment, makePublicClient, forecastArenaAbi, store, Mode } from "@arena/shared";
 import { Resolver, PriceFeed } from "@arena/resolver";
 import {
@@ -48,6 +49,50 @@ function loadPersistedWallets(): PersistedWallet[] {
 }
 function savePersistedWallets(w: PersistedWallet[]): void {
   fs.writeFileSync(walletsFile(), JSON.stringify(w, null, 2));
+}
+
+// --- EOA (plain private-key) agent fleet for Arc when Circle isn't configured ---
+interface PersistedKey { privateKey: `0x${string}`; address: Address; agentId: string; name: string; strategy: (typeof STRATEGIES)[number] }
+function keysFile(): string {
+  return process.env.AGENT_KEYS_FILE ?? dataPath("agent-keys.arc.json");
+}
+function loadOrCreateAgentKeys(n: number): PersistedKey[] {
+  let keys: PersistedKey[] = [];
+  try {
+    if (fs.existsSync(keysFile())) keys = JSON.parse(fs.readFileSync(keysFile(), "utf8")) as PersistedKey[];
+  } catch {
+    keys = [];
+  }
+  for (let i = keys.length; i < n; i++) {
+    const strategy = STRATEGIES[i % STRATEGIES.length];
+    const privateKey = generatePrivateKey();
+    keys.push({ privateKey, address: privateKeyToAccount(privateKey).address, agentId: "0", name: `Agent-${i}-${strategy}`, strategy });
+  }
+  fs.writeFileSync(keysFile(), JSON.stringify(keys, null, 2));
+  return keys.slice(0, n);
+}
+function saveAgentKeys(keys: PersistedKey[]): void {
+  fs.writeFileSync(keysFile(), JSON.stringify(keys, null, 2));
+}
+// Public anvil account #0 — safe locally, but must NOT be the deployer on a live testnet.
+const ANVIL_KEY_0 = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+function loadOrCreateDeployerKey(): `0x${string}` {
+  const f = process.env.DEPLOYER_KEY_FILE ?? dataPath("deployer-key.arc.json");
+  try {
+    if (fs.existsSync(f)) return (JSON.parse(fs.readFileSync(f, "utf8")) as { privateKey: `0x${string}` }).privateKey;
+  } catch {
+    /* regenerate */
+  }
+  const privateKey = generatePrivateKey();
+  fs.writeFileSync(f, JSON.stringify({ privateKey, address: privateKeyToAccount(privateKey).address }, null, 2));
+  return privateKey;
+}
+async function balanceOf(pub: ReturnType<typeof makePublicClient>, address: Address): Promise<bigint> {
+  try {
+    return await pub.getBalance({ address });
+  } catch {
+    return 0n;
+  }
 }
 
 
@@ -97,6 +142,32 @@ async function main() {
     if (!(await rpcUp())) throw new Error("anvil failed to start (is foundry installed?)");
   }
 
+  const pub = makePublicClient();
+  const fleetSize = IS_ARC
+    ? Number(process.env.FLEET_SIZE ?? 3)
+    : Math.min(Number(process.env.FLEET_SIZE ?? 3), ANVIL_KEYS.length - 1);
+  const hasCircle = !!(process.env.CIRCLE_API_KEY && process.env.CIRCLE_ENTITY_SECRET);
+  const eoaArc = IS_ARC && !hasCircle;
+
+  // On Arc, never deploy from the public anvil key. If the user hasn't supplied their own
+  // DEPLOYER_PRIVATE_KEY, generate + persist a dedicated one (they just fund the printed address).
+  let deployerKey = (process.env.DEPLOYER_PRIVATE_KEY as `0x${string}`) ?? ANVIL_KEYS[0];
+  if (IS_ARC && (!process.env.DEPLOYER_PRIVATE_KEY || process.env.DEPLOYER_PRIVATE_KEY === ANVIL_KEY_0)) {
+    deployerKey = loadOrCreateDeployerKey();
+    process.env.DEPLOYER_PRIVATE_KEY = deployerKey; // so the deploy.ts child uses it too
+  }
+  const deployerAddr = privateKeyToAccount(deployerKey).address;
+
+  // On the Arc EOA path, generate the agent wallets up front so ALL addresses needing USDC
+  // (deployer + agents) can be funded in one faucet session. Keys persist to the volume.
+  const eoaKeys = eoaArc ? loadOrCreateAgentKeys(fleetSize) : [];
+  if (eoaArc) {
+    console.log(`\n⏳ Fund these wallets with testnet USDC (faucet: https://faucet.circle.com, select Arc testnet):`);
+    console.log(`   DEPLOYER  ${deployerAddr}`);
+    for (const k of eoaKeys) console.log(`   AGENT     ${k.address}  (${k.strategy})`);
+    console.log("   Deployment runs once the deployer is funded; agents start as each is funded.\n");
+  }
+
   // 3. Deploy if we don't already have a deployment.
   let deployed = false;
   try {
@@ -106,22 +177,29 @@ async function main() {
     /* none yet */
   }
   if (!deployed) {
+    // On Arc the deployer pays gas in USDC — wait until it's funded before deploying so a
+    // cold start doesn't crash. Locally anvil pre-funds account 0, so this returns instantly.
+    if (IS_ARC && (await balanceOf(pub, deployerAddr)) === 0n) {
+      console.log(`Waiting for DEPLOYER ${deployerAddr} to be funded...`);
+      while ((await balanceOf(pub, deployerAddr)) === 0n) await sleep(5000);
+      console.log("Deployer funded ✓");
+    }
     console.log("Deploying contracts...");
     await runToCompletion("pnpm", ["exec", "tsx", "scripts/deploy.ts"]);
   }
 
   const dep = loadDeployment();
-  const pub = makePublicClient();
-  const deployerKey = (process.env.DEPLOYER_PRIVATE_KEY as `0x${string}`) ?? ANVIL_KEYS[0];
   const resolver = new Resolver(deployerKey, dep.forecastArena);
   const feed = new PriceFeed("ETH-USD", 3000, 0.006);
   await feed.init();
   const fastHorizon = Number(process.env.HORIZON_SEC ?? 60);
-  const fleetSize = Math.min(Number(process.env.FLEET_SIZE ?? 3), ANVIL_KEYS.length - 1);
 
-  // 4. Register the fleet once. Arc -> Circle Programmable Wallets (gas-free); local -> anvil keys.
+  // 4. Register the fleet once. Arc + Circle creds -> Circle Programmable Wallets (gas-free MPC);
+  //    Arc without Circle -> plain EOA wallets you fund at the faucet; local -> anvil keys.
   const agents: Forecaster[] = [];
-  if (IS_ARC) {
+  // EOA fleet bookkeeping for lazy (post-funding) ERC-8004 registration on Arc.
+  const eoaFleet: { agent: Agent; key: PersistedKey; idx: number; registered: boolean }[] = [];
+  if (IS_ARC && hasCircle) {
     const client = createCircleClient();
     // Reuse wallets from a previous run if we have enough persisted (avoids spawning new
     // unfunded wallets on every Railway restart). Otherwise create + register the fleet once.
@@ -148,6 +226,15 @@ async function main() {
       savePersistedWallets(toSave);
       console.log(`Saved wallet fleet to ${walletsFile()} (persist this volume to reuse on restart).`);
     }
+  } else if (IS_ARC) {
+    // EOA path: keys generated + printed for funding above. Agents auto-activate (and lazily
+    // ERC-8004-register) once each wallet has USDC for gas.
+    for (let i = 0; i < eoaKeys.length; i++) {
+      const k = eoaKeys[i];
+      const agent = new Agent({ name: k.name, strategy: k.strategy, privateKey: k.privateKey, arena: dep.forecastArena, agentId: BigInt(k.agentId) });
+      agents.push(agent);
+      eoaFleet.push({ agent, key: k, idx: i, registered: k.agentId !== "0" });
+    }
   } else {
     for (let i = 0; i < fleetSize; i++) {
       const key = ANVIL_KEYS[i + 1];
@@ -165,11 +252,38 @@ async function main() {
   const horizons = (process.env.HORIZONS ?? `${fastHorizon},300`)
     .split(",").map((s) => Number(s.trim())).filter((n) => n > 0);
   const tracks = horizons.map((sec) => ({ sec, label: label(sec), open: undefined as undefined | { id: number; closeMs: number } }));
-  console.log(`Fleet of ${agents.length} registered. Horizon tracks: ${tracks.map((t) => t.label).join(", ")}.`);
+  console.log(`Fleet of ${agents.length} agents. Horizon tracks: ${tracks.map((t) => t.label).join(", ")}.`);
+
+  // Lazily ERC-8004-register EOA agents once they're funded (best-effort; identity is optional
+  // for forecasting since the arena skips the ownerOf check when agentId is 0).
+  let lastLazyCheck = 0;
+  async function lazyRegisterEoa(): Promise<void> {
+    if (!IS_ARC || hasCircle || eoaFleet.length === 0) return;
+    if (eoaFleet.every((e) => e.registered)) return;
+    if (Date.now() - lastLazyCheck < 20000) return;
+    lastLazyCheck = Date.now();
+    for (const e of eoaFleet) {
+      if (e.registered) continue;
+      if ((await balanceOf(pub, e.key.address)) === 0n) continue;
+      try {
+        const agentId = await registerAgent(e.key.privateKey, dep.identityRegistry, `ipfs://agent-${e.idx}-${e.key.strategy}`);
+        e.agent.setAgentId(agentId);
+        e.key.agentId = agentId.toString();
+        e.registered = true;
+        const keys = loadOrCreateAgentKeys(fleetSize);
+        keys[e.idx] = e.key;
+        saveAgentKeys(keys);
+        console.log(`Registered EOA agent ${e.key.address} -> agentId ${agentId}`);
+      } catch {
+        /* not funded enough yet / transient — retry next pass */
+      }
+    }
+  }
 
   let settleCount = 0;
   while (true) {
     const now = Date.now();
+    await lazyRegisterEoa();
     for (const tr of tracks) {
       try {
         if (!tr.open) {
@@ -177,13 +291,14 @@ async function main() {
           const roundId = await resolver.openRound(Mode.SpotClose, tr.sec, subject);
           for (const agent of agents) {
             const ctx = { subject, history: feed.recent(15), current: feed.current(), horizonSec: tr.sec };
-            await agent.forecastRound(roundId, ctx);
+            // Per-agent failures (e.g. an unfunded EOA on Arc) must not abort the round.
+            await agent.forecastRound(roundId, ctx).catch((err) => console.error(`  ${agent.name} skip:`, String(err).slice(0, 120)));
           }
           tr.open = { id: roundId, closeMs: now + tr.sec * 1000 };
           console.log(`Opened round ${roundId} (${tr.label}) @ ${feed.current().toFixed(2)}`);
         } else if (now >= tr.open.closeMs) {
           const result = await resolver.settle(tr.open.id, feed.current());
-          await resolver.pushReputation(tr.open.id, agents.map((a) => a.address) as Address[]);
+          await resolver.pushReputation(tr.open.id, agents.map((a) => a.address) as Address[]).catch((e) => console.error("pushReputation:", String(e).slice(0, 120)));
           const w = store.getTrace(tr.open.id, result.winner);
           console.log(`Round ${tr.open.id} (${tr.label}) settled — winner ${w?.agentName ?? result.winner} @ ${feed.current().toFixed(2)}`);
           tr.open = undefined;

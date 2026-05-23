@@ -40,6 +40,11 @@ export class Agent {
       (process.env.AWS_BEARER_TOKEN_BEDROCK ? "us.anthropic.claude-3-5-haiku-20241022-v1:0" : "claude-haiku-4-5-20251001");
   }
 
+  /** Update the ERC-8004 agentId after a lazy (post-funding) registration. */
+  setAgentId(id: bigint): void {
+    this.agentId = id;
+  }
+
   /** Decide a forecast for the round, submit it on-chain, and persist the reasoning trace. */
   async forecastRound(roundId: number, ctx: MarketContext): Promise<{ value: number; txHash: string }> {
     const f = hasModelProvider() ? await modelForecast(this.strategy, ctx, this.model) : heuristics[this.strategy](ctx);

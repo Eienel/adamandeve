@@ -63,14 +63,45 @@ export const heuristics: Record<StrategyName, (ctx: MarketContext) => Forecast> 
   },
 };
 
-/** True if any LLM provider is configured (Bedrock bearer token or a direct Anthropic key). */
+/** True if any LLM provider is configured (Gemini, Bedrock bearer token, or a direct Anthropic key). */
 export function hasModelProvider(): boolean {
-  return !!(process.env.AWS_BEARER_TOKEN_BEDROCK || process.env.ANTHROPIC_API_KEY);
+  return !!(process.env.GEMINI_API_KEY || process.env.AWS_BEARER_TOKEN_BEDROCK || process.env.ANTHROPIC_API_KEY);
 }
 
-/** Call Claude via AWS Bedrock (bearer-token invoke) or the direct Anthropic API.
- *  Returns the raw text, or null to signal "fall back to heuristic". */
-async function callModel(system: string, user: string, model: string): Promise<string | null> {
+interface ModelReply {
+  text: string;
+  sources?: string[]; // grounded web sources, when available
+}
+
+/** Gemini via the Generative Language API, with Google Search grounding so the agent can
+ *  factor in live news/sentiment, not just the price series. Returns null to fall back. */
+async function callGemini(system: string, user: string): Promise<ModelReply | null> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return null;
+  const model = process.env.GEMINI_MODEL ?? "gemini-2.0-flash";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: system }] },
+      contents: [{ role: "user", parts: [{ text: user }] }],
+      tools: [{ google_search: {} }],
+      generationConfig: { temperature: 0.7, maxOutputTokens: 700 },
+    }),
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!r.ok) return null;
+  const j = (await r.json()) as any;
+  const cand = j?.candidates?.[0];
+  const text = (cand?.content?.parts ?? []).map((p: any) => p?.text ?? "").join("");
+  const chunks = cand?.groundingMetadata?.groundingChunks ?? [];
+  const sources = chunks.map((c: any) => c?.web?.title).filter(Boolean).slice(0, 4);
+  return text ? { text, sources } : null;
+}
+
+/** Claude via AWS Bedrock (bearer-token invoke) or the direct Anthropic API. */
+async function callClaude(system: string, user: string, model: string): Promise<ModelReply | null> {
   const bedrockToken = process.env.AWS_BEARER_TOKEN_BEDROCK;
   if (bedrockToken) {
     const region = process.env.AWS_REGION ?? "us-east-1";
@@ -82,7 +113,8 @@ async function callModel(system: string, user: string, model: string): Promise<s
     });
     if (!r.ok) return null; // quota/throttle/error -> heuristic fallback
     const j = (await r.json()) as { content?: { type: string; text?: string }[] };
-    return (j.content ?? []).map((c) => c.text ?? "").join("") || null;
+    const text = (j.content ?? []).map((c) => c.text ?? "").join("");
+    return text ? { text } : null;
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -96,14 +128,24 @@ async function callModel(system: string, user: string, model: string): Promise<s
       system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }] as any,
       messages: [{ role: "user", content: user }],
     });
-    return resp.content.map((c) => (c.type === "text" ? c.text : "")).join("");
+    const text = resp.content.map((c) => (c.type === "text" ? c.text : "")).join("");
+    return text ? { text } : null;
   }
 
   return null;
 }
 
-/** Optional Claude-backed reasoning (Bedrock or Anthropic). Falls back to the heuristic on any error. */
-export async function claudeForecast(
+/** Route to a configured provider. Gemini (grounded) first, then Claude. Null -> heuristic. */
+async function callModel(system: string, user: string, model: string): Promise<ModelReply | null> {
+  if (process.env.GEMINI_API_KEY) {
+    const g = await callGemini(system, user);
+    if (g) return g;
+  }
+  return callClaude(system, user, model);
+}
+
+/** Optional LLM-backed reasoning (Gemini/Claude). Falls back to the heuristic on any error. */
+export async function modelForecast(
   strategy: StrategyName,
   ctx: MarketContext,
   model: string,
@@ -111,18 +153,22 @@ export async function claudeForecast(
   try {
     const system =
       `You are an autonomous market-forecasting agent with a ${strategy} bias. ` +
-      `Given recent prices, output ONLY strict JSON: {"value": <number>, "reasoning": "<2-3 sentences>"}. ` +
+      `Use the recent price series and, if available, the latest news/sentiment for the asset. ` +
+      `Output ONLY strict JSON: {"value": <number>, "reasoning": "<2-3 sentences>"}. ` +
       `value is your point forecast for the reference price at the round close. Be decisive.`;
     const user =
       `Subject: ${ctx.subject}\nRecent prices (oldest→newest): ${ctx.history.map((p) => p.toFixed(2)).join(", ")}\n` +
-      `Spot now: ${ctx.current.toFixed(2)}\nHorizon: ${ctx.horizonSec}s\nReturn JSON only.`;
+      `Spot now: ${ctx.current.toFixed(2)}\nHorizon: ${ctx.horizonSec}s\n` +
+      `If relevant, factor in the latest market news/sentiment for this asset. Return JSON only.`;
 
-    const text = await callModel(system, user, model);
-    if (!text) return heuristics[strategy](ctx);
+    const reply = await callModel(system, user, model);
+    if (!reply?.text) return heuristics[strategy](ctx);
 
-    const json = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
+    const t = reply.text;
+    const json = JSON.parse(t.slice(t.indexOf("{"), t.lastIndexOf("}") + 1));
     if (typeof json.value === "number" && typeof json.reasoning === "string") {
-      return { value: json.value, reasoning: json.reasoning };
+      const provenance = reply.sources?.length ? ` [sources: ${reply.sources.join("; ")}]` : "";
+      return { value: json.value, reasoning: json.reasoning + provenance };
     }
     return heuristics[strategy](ctx);
   } catch {

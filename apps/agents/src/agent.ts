@@ -5,7 +5,7 @@ import {
   forecastArenaAbi,
   store,
 } from "@arena/shared";
-import { claudeForecast, heuristics, hasModelProvider, type MarketContext, type StrategyName } from "./strategies.js";
+import { modelForecast, heuristics, hasModelProvider, type MarketContext, type StrategyName } from "./strategies.js";
 
 export interface AgentConfig {
   name: string;
@@ -42,8 +42,7 @@ export class Agent {
 
   /** Decide a forecast for the round, submit it on-chain, and persist the reasoning trace. */
   async forecastRound(roundId: number, ctx: MarketContext): Promise<{ value: number; txHash: string }> {
-    const useClaude = hasModelProvider();
-    const f = useClaude ? await claudeForecast(this.strategy, ctx, this.model) : heuristics[this.strategy](ctx);
+    const f = hasModelProvider() ? await modelForecast(this.strategy, ctx, this.model) : heuristics[this.strategy](ctx);
 
     const value = parseUnits(f.value.toFixed(6), 18);
     const traceHash = keccak256(toBytes(f.reasoning));

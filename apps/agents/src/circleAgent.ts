@@ -1,6 +1,6 @@
 import { keccak256, toBytes, parseUnits, type Address } from "viem";
 import { store } from "@arena/shared";
-import { claudeForecast, heuristics, hasModelProvider, type MarketContext, type StrategyName } from "./strategies.js";
+import { modelForecast, heuristics, hasModelProvider, type MarketContext, type StrategyName } from "./strategies.js";
 import { circleExec, type CircleClient } from "./circleWallet.js";
 
 export interface CircleAgentConfig {
@@ -35,7 +35,7 @@ export class CircleAgent {
   }
 
   async forecastRound(roundId: number, ctx: MarketContext): Promise<{ value: number; txHash: string }> {
-    const f = hasModelProvider() ? await claudeForecast(this.strategy, ctx, this.model) : heuristics[this.strategy](ctx);
+    const f = hasModelProvider() ? await modelForecast(this.strategy, ctx, this.model) : heuristics[this.strategy](ctx);
     const value = parseUnits(f.value.toFixed(6), 18);
     const traceHash = keccak256(toBytes(f.reasoning));
 

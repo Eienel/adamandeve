@@ -4,50 +4,69 @@
 
 ## What is Entity Secret?
 
-An **Entity Secret** is a cryptographic key issued by Circle that authorizes your application to create and manage **Programmable Wallets** (MPC-secured, gas-free wallets on Arc). Without it, agent wallet creation fails with `UNAUTHORIZED` or similar.
+An **Entity Secret** is a 32-byte (64 hex char) string **you generate yourself**, then **register once**
+against your existing Circle API key. The SDK uses it to encrypt wallet operations. It is **NOT** the API key,
+and it is **NOT** shown to you when you create the API key — it's a separate, second credential.
+
+So you end up with **two** secrets:
+- `CIRCLE_API_KEY` — you already have this (looks like `TEST_API_KEY:...` or `LIVE_API_KEY:...`).
+- `CIRCLE_ENTITY_SECRET` — the 32-byte string you generate + register below.
 
 ## Prerequisites
 
-1. **Circle Account** at https://console.circle.com
-2. **Arc testnet account** with a small amount of USDC for gas (~10 USDC). Faucet: https://faucet.circle.com
-3. **Programmatic Access:** Circle API Key + Entity Secret (generated in the dashboard)
-4. **RPC_URL** set to Arc testnet: `https://rpc.testnet.arc.network`
+1. Your existing **Circle API key** (from https://console.circle.com → API Keys).
+2. **Arc testnet account** funded with USDC for gas (~10 USDC). Faucet: https://faucet.circle.com
+3. **RPC_URL** set to Arc testnet: `https://rpc.testnet.arc.network`
 
-## Step 1: Generate Circle API Key & Entity Secret
+## Step 1: Generate + register the Entity Secret
+
+You already have the API key, so you only need to create + register the Entity Secret. Two ways:
+
+### Option A — Circle Console (no code, easiest)
 
 1. Log in to **https://console.circle.com**.
-2. Navigate to **API Keys** (Developers → API Keys).
-3. Click **Create New Key**.
-4. Choose **Testnet** scope and **Full Access** permissions.
-5. Copy the **API Key** (looks like `pk_test_...`).
-6. **IMPORTANT:** Copy the **Entity Secret** displayed once at creation (it is shown only once and cannot be recovered).
-   - Store safely; you'll need it in `.env`.
+2. Go to **Configurator** (Developers → Programmable Wallets → Configurator / "Entity Secret").
+3. Click **Generate Entity Secret** → it creates the 32-byte value in your browser.
+4. Click **Register** → download the **recovery file** (keep it safe; it can rotate the secret later).
+5. Copy the generated **Entity Secret** value. That's your `CIRCLE_ENTITY_SECRET`.
 
-## Step 2: Update .env
+### Option B — One-time script (uses your API key)
+
+From a machine with the repo checked out and `pnpm install` run:
 
 ```bash
-cp .env.example .env
+CIRCLE_API_KEY=TEST_API_KEY:your-existing-key \
+  pnpm exec tsx scripts/register-circle-secret.ts
 ```
 
-Edit `.env` and add:
+It generates a fresh 32-byte secret, registers it against your API key, saves
+`./circle-recovery-file.dat`, and prints:
 
-```env
-# Arc testnet (replacing local anvil)
-RPC_URL=https://rpc.testnet.arc.network
+```
+✅ Registered. Add this to your Railway environment variables:
 
-# Deployer account (must be funded at https://faucet.circle.com; ~10 USDC for gas)
-DEPLOYER_PRIVATE_KEY=0x<your-account-private-key>
-
-# Circle Programmable Wallets
-CIRCLE_API_KEY=pk_test_...
-CIRCLE_ENTITY_SECRET=<your-entity-secret-from-console>
-
-# (Optional) Gemini or Claude for agent reasoning
-GEMINI_API_KEY=<your-api-key>  # or ANTHROPIC_API_KEY for direct Claude
-GEMINI_MODEL=gemini-2.5-flash
+  CIRCLE_ENTITY_SECRET=<64-hex-chars>
 ```
 
-**NEVER commit `.env` or leak the Entity Secret.**
+Copy that value. **Store the recovery file safely, then delete it from the repo (it's gitignored, never commit it).**
+
+## Step 2: Set environment variables on Railway
+
+We run on **Railway**, so set these in the service's **Variables** tab (not a local `.env`).
+Railway redeploys automatically when you save a variable.
+
+| Variable | Value | Notes |
+|----------|-------|-------|
+| `RPC_URL` | `https://rpc.testnet.arc.network` | switches the app from embedded anvil to Arc |
+| `DEPLOYER_PRIVATE_KEY` | `0x...` | account that deploys contracts + runs the resolver; **fund it with USDC** |
+| `CIRCLE_API_KEY` | `TEST_API_KEY:...` | your existing key |
+| `CIRCLE_ENTITY_SECRET` | `<64-hex-chars>` | from Step 1 |
+| `GEMINI_API_KEY` | *(optional)* | agent reasoning; else heuristics |
+| `FLEET_SIZE` | `3` | number of Circle agent wallets |
+
+**NEVER commit these or paste the Entity Secret into chat/git.** Railway Variables are the only place they live.
+
+> Local dev equivalent: `cp .env.example .env` and put the same keys there.
 
 ## Step 3: Deploy Contracts to Arc
 

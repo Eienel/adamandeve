@@ -3,6 +3,7 @@ export { registerAgent } from "./register.js";
 export { heuristics, modelForecast, hasModelProvider, type MarketContext, type Forecast, type StrategyName } from "./strategies.js";
 export {
   createCircleClient,
+  registerCircleEntitySecret,
   createAgentWallets,
   registerAgentViaCircle,
   circleExec,

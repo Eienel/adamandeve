@@ -1,4 +1,5 @@
-import { initiateDeveloperControlledWalletsClient } from "@circle-fin/developer-controlled-wallets";
+import { initiateDeveloperControlledWalletsClient, registerEntitySecretCiphertext } from "@circle-fin/developer-controlled-wallets";
+import crypto from "node:crypto";
 import { decodeEventLog, type Address } from "viem";
 import { makePublicClient, identityRegistryAbi } from "@arena/shared";
 
@@ -15,6 +16,17 @@ export function createCircleClient(): CircleClient {
     throw new Error("CIRCLE_API_KEY and CIRCLE_ENTITY_SECRET are required for the Circle wallet path");
   }
   return initiateDeveloperControlledWalletsClient({ apiKey, entitySecret });
+}
+
+/** One-time Entity Secret setup: generate a 32-byte secret (if none passed) and register it
+ *  against your existing Circle API key. Returns the secret to store + the recovery file. */
+export async function registerCircleEntitySecret(
+  apiKey: string,
+  entitySecret = crypto.randomBytes(32).toString("hex"),
+  recoveryFileDownloadPath = "./circle-recovery-file.dat",
+): Promise<{ entitySecret: string; recoveryFile: string }> {
+  const res = await registerEntitySecretCiphertext({ apiKey, entitySecret, recoveryFileDownloadPath });
+  return { entitySecret, recoveryFile: res.data?.recoveryFile ?? "" };
 }
 
 export interface AgentWallet {

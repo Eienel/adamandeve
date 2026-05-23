@@ -14,4 +14,8 @@ contracts/out/
 contracts/cache/
 contracts/broadcast/
 deployments.local.json
+deployments.arc.json
 arena-data.json
+agent-wallets.arc.json
+circle-recovery-file.dat
+*.recovery.dat

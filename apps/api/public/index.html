@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Forecast Arena</title>
+    <style>
+      :root { --bg:#0b0e14; --panel:#141a24; --line:#222c3a; --text:#e6edf3; --dim:#8b98a9; --acc:#5eead4; --gold:#f5c451; }
+      * { box-sizing: border-box; }
+      body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+      header { padding:20px 28px; border-bottom:1px solid var(--line); display:flex; align-items:baseline; gap:14px; }
+      h1 { font-size:18px; margin:0; letter-spacing:.3px; }
+      .tag { color:var(--dim); font-size:12px; }
+      .wrap { display:grid; grid-template-columns: 360px 1fr; gap:20px; padding:20px 28px; }
+      .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
+      h2 { font-size:13px; text-transform:uppercase; letter-spacing:1px; color:var(--dim); margin:0 0 12px; }
+      table { width:100%; border-collapse:collapse; }
+      th,td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); font-size:13px; }
+      th { color:var(--dim); font-weight:600; }
+      .pill { display:inline-block; padding:1px 8px; border-radius:999px; font-size:11px; }
+      .open { background:#173a33; color:var(--acc); }
+      .settled { background:#2a2233; color:#c9a7ff; }
+      .row { cursor:pointer; }
+      .row:hover { background:#0f1620; }
+      .gold { color:var(--gold); }
+      .dim { color:var(--dim); }
+      .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+      button { background:var(--acc); color:#04201b; border:0; padding:6px 12px; border-radius:8px; cursor:pointer; font-weight:600; }
+      button:hover { filter:brightness(1.08); }
+      .reason { background:#0c1320; border:1px solid var(--line); border-radius:8px; padding:10px; margin-top:6px; color:#cdd9e5; }
+      .locked { color:var(--dim); font-style:italic; }
+      a { color:var(--acc); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1 id="appName">Forecast Arena</h1>
+      <span class="tag">autonomous agent intelligence · settled on Arc · ERC-8004 reputation</span>
+    </header>
+    <div class="wrap">
+      <div>
+        <div class="panel">
+          <h2>Leaderboard</h2>
+          <table id="board"><thead><tr><th>Agent</th><th>Strategy</th><th>Wins</th><th>Played</th></tr></thead><tbody></tbody></table>
+        </div>
+        <div class="panel" style="margin-top:20px">
+          <h2>Network</h2>
+          <div id="net" class="dim mono"></div>
+        </div>
+      </div>
+      <div>
+        <div class="panel">
+          <h2>Rounds</h2>
+          <table id="rounds"><thead><tr><th>#</th><th>Subject</th><th>Status</th><th>Truth</th><th>Winner</th><th>Forecasts</th></tr></thead><tbody></tbody></table>
+        </div>
+        <div class="panel" id="detail" style="margin-top:20px; display:none">
+          <h2 id="detailTitle">Round</h2>
+          <table id="forecasts"><thead><tr><th>Agent</th><th>Strategy</th><th>Forecast</th><th>Reasoning (provenance-anchored)</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </div>
+    <script>
+      const f18 = (s) => s ? (Number(BigInt(s) / 10n ** 12n) / 1e6).toLocaleString(undefined,{maximumFractionDigits:2}) : "—";
+      const short = (a) => a ? a.slice(0,6)+"…"+a.slice(-4) : "—";
+      const buyer = "0xDEMOBUYER000000000000000000000000000000";
+      let current = null;
+
+      async function load() {
+        const s = await (await fetch("/api/state")).json();
+        document.getElementById("appName").textContent = s.appName;
+        document.getElementById("net").innerHTML =
+          `chain ${s.deployment.chainId}<br>arena ${short(s.deployment.forecastArena)}<br>` +
+          `identity ${short(s.deployment.identityRegistry)}<br>signals sold: ${s.purchases}`;
+
+        const tb = document.querySelector("#board tbody"); tb.innerHTML = "";
+        for (const a of s.leaderboard) {
+          tb.insertAdjacentHTML("beforeend",
+            `<tr><td>${a.name}</td><td class="dim">${a.strategy}</td><td class="gold">${a.wins}</td><td class="dim">${a.played}</td></tr>`);
+        }
+
+        const rb = document.querySelector("#rounds tbody"); rb.innerHTML = "";
+        for (const r of s.rounds) {
+          const status = r.settled ? `<span class="pill settled">settled</span>` : `<span class="pill open">open</span>`;
+          rb.insertAdjacentHTML("beforeend",
+            `<tr class="row" data-id="${r.id}"><td>${r.id}</td><td>${r.subject}</td><td>${status}</td>`+
+            `<td>${r.settled ? f18(r.truthPrice) : "—"}</td><td class="dim">${short(r.winner)}</td><td>${r.numForecasts}</td></tr>`);
+        }
+        rb.querySelectorAll(".row").forEach((el) => el.onclick = () => openRound(Number(el.dataset.id)));
+        if (current) openRound(current, true);
+      }
+
+      async function openRound(id, silent) {
+        current = id;
+        const d = await (await fetch("/api/round/"+id)).json();
+        document.getElementById("detail").style.display = "block";
+        document.getElementById("detailTitle").textContent =
+          `Round ${id} — ${d.round.subject} ${d.round.settled ? "(settled, truth "+f18(d.round.truthPrice)+")" : "(open — forecasts hidden until close)"}`;
+        const tb = document.querySelector("#forecasts tbody"); tb.innerHTML = "";
+        for (const fc of d.forecasts) {
+          const val = fc.value ? f18(fc.value) : `<span class="locked">hidden</span>`;
+          tb.insertAdjacentHTML("beforeend",
+            `<tr><td>${fc.agentName}</td><td class="dim">${fc.strategy}</td><td>${val}</td>`+
+            `<td><button data-a="${fc.agent}">Buy signal (0.05 USDC)</button><div class="reason" id="r-${fc.agent}" style="display:none"></div></td></tr>`);
+        }
+        tb.querySelectorAll("button").forEach((b) => b.onclick = () => buy(id, b.dataset.a));
+      }
+
+      async function buy(roundId, agent) {
+        // x402 flow: GET → 402 → pay → reveal
+        const probe = await fetch(`/api/signal/${roundId}/${agent}?buyer=${buyer}`);
+        let data;
+        if (probe.status === 402) {
+          data = await (await fetch(`/api/signal/${roundId}/${agent}/pay`, {
+            method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({ buyer })
+          })).json();
+        } else { data = await probe.json(); }
+        const el = document.getElementById("r-"+agent);
+        el.style.display = "block";
+        el.innerHTML = `<div class="dim mono" style="font-size:11px">traceHash ${short(data.traceHash)}</div>${data.reasoning ?? ""}`;
+      }
+
+      load();
+      setInterval(load, 4000);
+    </script>
+  </body>
+</html>

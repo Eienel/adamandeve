@@ -1,67 +1,65 @@
 # 05 — Runbook (setup & run)
 
-> Fill in exact values as we go. Goal: anyone (or any new session) can stand the project up from scratch.
+> Verified working. Local end-to-end needs no API keys.
 
 ## 0. Prereqs
-- Node 22+, pnpm (or npm), Python 3.11+, `uv`, Foundry (`foundryup`), git.
-- Accounts: Circle developer account (API key + entity secret), Anthropic API key.
+- Node 22+, pnpm, git, Foundry (`forge`, `anvil`).
+- Foundry install note: in this environment `api.github.com` is blocked, so `foundryup` can't
+  resolve release tags. Workaround used: download the release tarball directly —
+  `curl -L https://github.com/foundry-rs/foundry/releases/download/stable/foundry_stable_linux_amd64.tar.gz | tar xz -C ~/.foundry/bin forge cast anvil chisel`.
+- Optional: `ANTHROPIC_API_KEY` (Claude-backed agent reasoning), Circle API key + entity secret
+  (Programmable Wallets on Arc), `arc-canteen` CLI (Arc RPC + traction reporting).
 
-## 1. Arc CLI + context
+## 1. Install
+```bash
+pnpm install
+```
+
+## 2. Local end-to-end demo (no keys)
+```bash
+pnpm demo:local     # starts anvil, builds + deploys, registers 3 agents on ERC-8004,
+                    # runs 3 forecast rounds, settles, pushes reputation, does a real AMM swap
+pnpm api            # dashboard + API at http://localhost:8787 (keep the demo's anvil running)
+```
+Tunables (env): `FLEET_SIZE` (default 3), `ROUNDS` (3), `HORIZON_SEC` (8), `APP_NAME`.
+
+Manual equivalent:
+```bash
+anvil --silent &
+export RPC_URL=http://127.0.0.1:8545 \
+  DEPLOYER_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+(cd contracts && forge build)
+pnpm exec tsx scripts/deploy.ts       # writes deployments.local.json
+pnpm exec tsx scripts/local-demo.ts
+pnpm exec tsx apps/api/src/index.ts
+```
+
+## 3. Contracts
+```bash
+cd contracts && forge build && forge test    # 24 tests
+```
+
+## 4. Typecheck
+```bash
+for p in packages/shared apps/agents apps/resolver apps/api; do pnpm exec tsc --noEmit -p $p/tsconfig.json; done
+```
+
+## 5. Deploy to Arc testnet
+```bash
+cp .env.example .env   # set DEPLOYER_PRIVATE_KEY; fund it at https://faucet.circle.com
+RPC_URL=https://rpc.testnet.arc.network pnpm exec tsx scripts/deploy.ts
+# On Arc this auto-uses real USDC (0x3600…0000) + ERC-8004 registries.
+```
+
+## 6. Arc CLI (RPC + traction reporting)
 ```bash
 uv tool install git+https://github.com/the-canteen-dev/ARC-cli
-arc-canteen login
-arc-canteen context sync          # downloads docs + 5 sample codebases to ~/.arc-canteen/context/
-arc-canteen rpc-url               # -> authenticated Arc testnet RPC (put in .env as ARC_RPC_URL)
-```
-
-## 2. Env (.env — never commit)
-```
-ARC_RPC_URL=...                   # from `arc-canteen rpc-url`
-ARC_CHAIN_ID=...                  # from docs / rpc
-DEPLOYER_PRIVATE_KEY=...          # testnet only
-CIRCLE_API_KEY=...
-CIRCLE_ENTITY_SECRET=...
-ANTHROPIC_API_KEY=...
-DATABASE_URL=postgres://...
-APP_NAME=Untitled                 # placeholder; real name dropped in here later
-```
-
-## 3. Contracts (Foundry)
-```bash
-cd contracts
-forge build
-forge test
-forge script script/Deploy.s.sol --rpc-url $ARC_RPC_URL --broadcast --private-key $DEPLOYER_PRIVATE_KEY
-# record deployed addresses in docs/03-contracts.md
-```
-
-## 4. Backend / resolver + indexer
-```bash
-cd resolver && pnpm i && pnpm dev   # opens/scores rounds, posts truth, indexes events -> Postgres
-```
-
-## 5. Agent fleet
-```bash
-cd agents && pnpm i && pnpm fleet    # boots N agents, each with a Circle MPC wallet; runs 24/7
-```
-
-## 6. Open Join API + SDK
-```bash
-cd api && pnpm i && pnpm dev         # /register, /rounds/current, /forecast, /buy-signal
-```
-
-## 7. Dashboard
-```bash
-cd dashboard && pnpm i && pnpm dev   # Next.js; deploy to Vercel for the live link
-```
-
-## 8. Report traction (throughout the event)
-```bash
-arc-canteen update-traction ...
-arc-canteen update-product ...
+arc-canteen login            # GitHub device flow (interactive)
+arc-canteen context sync     # docs + samples -> ~/.arc-canteen/context
+arc-canteen update-traction  # report during the event window
 ```
 
 ## Notes
-- Keep secrets out of git (`.env`, Circle entity secret). Add `.gitignore`.
+- Secrets stay out of git (`.env`, Circle entity secret). `deployments.local.json` + `arena-data.json` are gitignored.
 - Develop/commit/push on branch `claude/arc-circle-hackathon-4slm0`.
-</content>
+- Agents run with deterministic heuristics when `ANTHROPIC_API_KEY` is unset, so the demo always runs.

@@ -13,3 +13,5 @@ __pycache__/
 contracts/out/
 contracts/cache/
 contracts/broadcast/
+deployments.local.json
+arena-data.json

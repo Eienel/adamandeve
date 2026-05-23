@@ -7,10 +7,14 @@ contract MockIdentityRegistry {
     mapping(uint256 => address) public owners;
     mapping(uint256 => string) public uris;
 
+    // Mirror the real ERC-8004 IdentityRegistry: minting an identity emits ERC-721 Transfer.
+    event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
+
     function register(string calldata metadataURI) external {
         uint256 id = nextId++;
         owners[id] = msg.sender;
         uris[id] = metadataURI;
+        emit Transfer(address(0), msg.sender, id);
     }
 
     /// @dev test helper to assign an id to an owner directly

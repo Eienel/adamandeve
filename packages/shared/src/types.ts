@@ -29,4 +29,6 @@ export interface AgentInfo {
   name: string;
   strategy: string;
   agentId?: string;
+  apiKey?: string; // for external agent auth
+  registeredAt?: number;
 }

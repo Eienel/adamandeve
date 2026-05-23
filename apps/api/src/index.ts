@@ -112,6 +112,113 @@ app.post("/api/signal/:roundId/:agent/pay", (req, res) => {
   res.json({ ok: true, roundId, agent, reasoning: trace?.reasoning, traceHash: trace?.traceHash });
 });
 
+// ========== PHASE 1: AGENT REGISTRATION ==========
+
+// Register a new agent (external or human-controlled)
+app.post("/api/agents/register", async (req, res) => {
+  try {
+    const { name, strategy } = req.body;
+    if (!name || !strategy) return res.status(400).json({ error: "missing name or strategy" });
+
+    // Generate unique API key
+    const apiKey = `ak_${Math.random().toString(36).slice(2)}_${Date.now()}`;
+    const agentId = String(store.listAgents().length + 1);
+
+    // For now, use a deterministic address based on agentId
+    // On Arc with Circle, this would be a new Circle wallet
+    const agentAddress = `0x${agentId.padStart(40, "0")}` as `0x${string}`;
+
+    const agent = {
+      address: agentAddress,
+      name,
+      strategy,
+      apiKey,
+      agentId,
+      registeredAt: Date.now(),
+    };
+
+    store.upsertAgent(agent);
+    res.json({ success: true, apiKey, agentId, address: agentAddress, name });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// ========== PHASE 2: LEADERBOARD & AUTH ==========
+
+// List all agents (public)
+app.get("/api/agents", async (_req, res) => {
+  try {
+    const agents = store.listAgents();
+    const d = dep();
+    const arena = d.forecastArena;
+
+    const leaderboard = await Promise.all(
+      agents.map(async (a) => {
+        const wins = Number(await pub.readContract({ address: arena, abi: forecastArenaAbi, functionName: "wins", args: [a.address] }));
+        const played = Number(await pub.readContract({ address: arena, abi: forecastArenaAbi, functionName: "roundsPlayed", args: [a.address] }));
+        return {
+          agentId: a.agentId,
+          name: a.name,
+          strategy: a.strategy,
+          address: a.address,
+          wins,
+          played,
+          winRate: played > 0 ? (wins / played).toFixed(3) : "0",
+        };
+      }),
+    );
+
+    leaderboard.sort((x, y) => y.wins - x.wins);
+    res.json(leaderboard);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// Get leaderboard for a specific round (public)
+app.get("/api/rounds/:id/leaderboard", async (req, res) => {
+  try {
+    const roundId = Number(req.params.id);
+    const traces = store.listTraces(roundId);
+    const d = dep();
+    const arena = d.forecastArena;
+
+    const leaderboard = await Promise.all(
+      traces.map(async (t) => {
+        const wins = Number(await pub.readContract({ address: arena, abi: forecastArenaAbi, functionName: "wins", args: [t.agent] }));
+        const played = Number(await pub.readContract({ address: arena, abi: forecastArenaAbi, functionName: "roundsPlayed", args: [t.agent] }));
+        return {
+          agentId: t.agentId,
+          address: t.agent,
+          name: t.agentName,
+          strategy: t.strategy,
+          prediction: t.value,
+          wins,
+          played,
+          winRate: played > 0 ? (wins / played).toFixed(3) : "0",
+        };
+      }),
+    );
+
+    leaderboard.sort((x, y) => y.wins - x.wins);
+    res.json({ roundId, leaderboard });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// Verify API key and get agent info (for external agents to self-check)
+app.get("/api/agents/verify", (req, res) => {
+  const apiKey = req.header("authorization")?.replace("Bearer ", "");
+  if (!apiKey) return res.status(401).json({ error: "missing api key" });
+
+  const agent = store.listAgents().find((a) => a.apiKey === apiKey);
+  if (!agent) return res.status(401).json({ error: "invalid api key" });
+
+  res.json({ agentId: agent.agentId, name: agent.name, address: agent.address, strategy: agent.strategy });
+});
+
 app.use(express.static(path.resolve(__dirname, "../public")));
 
 app.listen(PORT, "0.0.0.0", () => {

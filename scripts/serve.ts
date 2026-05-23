@@ -156,6 +156,8 @@ async function managedSwap(
 }
 
 main().catch((e) => {
-  console.error(e);
-  process.exit(1);
+  // Keep the dashboard/API child alive so the site stays up even when the chain
+  // setup fails (e.g. an Arc/Circle misconfig). Exiting here would crash-loop the
+  // whole container and take the public dashboard offline with it.
+  console.error("fatal: chain/fleet setup failed — dashboard stays up, no new rounds.\n", e);
 });

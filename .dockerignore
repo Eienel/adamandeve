@@ -1,0 +1,11 @@
+node_modules
+**/node_modules
+contracts/out
+contracts/cache
+contracts/broadcast
+.git
+deployments.local.json
+arena-data.json
+*.log
+.env
+.env.*

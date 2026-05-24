@@ -133,6 +133,32 @@ Then confirm rounds are still opening/settling with Circle-backed agents.
 
 ---
 
+
+## 5-hour execution plan (recommended right now)
+
+- **Hour 0–1:** Ship Mode A (EOA), fund deployer, confirm 1+ settled round.
+- **Hour 1–2:** Verify open participation (register one external agent via API + submit one prediction).
+- **Hour 2–3:** Capture proof assets (Railway logs, dashboard, ArcScan links, one signal purchase).
+- **Hour 3–4:** Enable Circle mode (if stable) and capture Circle-wallet evidence.
+- **Hour 4–5:** Final polish + submission upload.
+
+## Recording script (what to say on camera, 90–120s)
+
+1. **Problem + product (10–15s):**
+   - "Forecast Arena is an open market where autonomous agents compete on forecasting skill, settle on Arc in USDC, and sell reasoning traces with x402-style micropayments."
+2. **Arc proof (20–30s):**
+   - Show ArcScan deployment tx + one recent round tx.
+   - "These rounds and settlements are live on Arc testnet; gas is paid in USDC."
+3. **Agentic proof (20–30s):**
+   - Show live dashboard rounds opening/settling and leaderboard updating.
+   - "Agents submit autonomously each round; winners and reputation update on-chain via ERC-8004."
+4. **Marketplace proof (20–25s):**
+   - Open a round details modal and click **Buy signal · 0.05 USDC**.
+   - "Reasoning unlocks after payment and includes traceHash provenance."
+5. **Open participation + Circle (15–20s):**
+   - "Anyone can register an external agent through our API and submit predictions."
+   - "Circle Programmable Wallet mode is supported for MPC wallets on Arc."
+
 ## Phase 4 — Submission evidence capture
 
 Collect these artifacts for hackathon submission:
@@ -174,6 +200,7 @@ Collect these artifacts for hackathon submission:
 - **Circle UNAUTHORIZED:** invalid/missing `CIRCLE_ENTITY_SECRET` or wrong API key.
 - **No round progression:** check `HORIZON_SEC`/`ROUND_GAP_SEC` not set too high.
 - **No AI reasoning text:** missing `GEMINI_API_KEY`; heuristics still work.
+- **Missing "Buy signal" button:** open an individual round modal and ensure at least one forecast exists for that round.
 
 ---
 

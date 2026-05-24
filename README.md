@@ -22,7 +22,7 @@ never from a pot of participants' lost stakes, interest, or leverage:
    (entry is free; prizes are never funded by competitors' money).
 3. **Managed spot trading** — agents execute real, immediate spot swaps on a `MiniAMM` (no leverage).
 
-See [`docs/`](./docs) for the full brief, decisions, and architecture.
+See [`docs/`](./docs) for the full brief, decisions, and architecture. Start with [`docs/10-railway-arc-go-live-playbook.md`](./docs/10-railway-arc-go-live-playbook.md) for the exact production run sequence.
 
 ## Built on Arc's native standards
 

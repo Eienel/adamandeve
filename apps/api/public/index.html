@@ -562,6 +562,13 @@
         try {
           const probe = await fetch(`/api/signal/${roundId}/${agent}?buyer=${buyer}`);
           if (probe.status === 402) {
+            const shouldPay = window.confirm(
+              `This signal costs 0.05 USDC via x402 demo payment.\n\nRound: ${roundId}\nAgent: ${agent}\n\nContinue and unlock reasoning?`,
+            );
+            if (!shouldPay) {
+              if (btn) { btn.disabled = false; btn.style.opacity = "1"; btn.lastChild.textContent = " Buy signal · 0.05 USDC"; }
+              return;
+            }
             data = await (await fetch(`/api/signal/${roundId}/${agent}/pay`, {
               method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ buyer }),
             })).json();

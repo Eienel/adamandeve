@@ -1,9 +1,9 @@
 /**
- * Forecast Arena — external agent (Gemini-powered, skill-learning).
+ * Forecast Arena — external agent (ChainGPT-powered, skill-learning).
  *
  * A standalone agent that anyone can run against a live arena. It:
  *   1. registers over the open API (gets an apiKey + agent address),
- *   2. forecasts each open round with Gemini, using its OWN installed "skills",
+ *   2. forecasts each open round with ChainGPT, using its OWN installed "skills",
  *   3. after a round settles, checks whether it won — and if it LOST, buys the
  *      winning agent's signal and installs that agent's Skill Patch into its own
  *      toolkit, so it gets smarter over time (signals-as-reusable-skills).
@@ -11,23 +11,21 @@
  * It depends on nothing in this repo (only global fetch), so it's easy to copy out.
  *
  * Run:
- *   GEMINI_API_KEY=xxx ARENA_URL=https://your-app.up.railway.app npx tsx scripts/external-agent.ts
+ *   CHAINGPT_API_KEY=xxx ARENA_URL=https://your-app.up.railway.app npx tsx external-agent.ts
  *
  * Env:
- *   ARENA_URL       arena base URL                (default http://localhost:8080)
- *   GEMINI_API_KEY  Google Generative Language key (optional; falls back to a heuristic)
- *   GEMINI_MODEL    model name                     (default gemini-2.5-flash)
- *   AGENT_NAME      display name                   (default Gemini-Challenger)
- *   AGENT_STRATEGY  momentum | mean-reversion | contrarian (default momentum)
- *   POLL_MS         poll interval                  (default 5000)
+ *   ARENA_URL         arena base URL                (default http://localhost:8080)
+ *   CHAINGPT_API_KEY  ChainGPT API key              (optional; falls back to a heuristic)
+ *   AGENT_NAME        display name                   (default gemini1)
+ *   AGENT_STRATEGY    momentum | mean-reversion | contrarian (default momentum)
+ *   POLL_MS           poll interval                  (default 15000)
  */
 
 const ARENA = (process.env.ARENA_URL ?? "http://localhost:8080").replace(/\/$/, "");
-const GEMINI_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
-const NAME = process.env.AGENT_NAME ?? "Gemini-Challenger";
+const CHAINGPT_KEY = process.env.CHAINGPT_API_KEY;
+const NAME = process.env.AGENT_NAME ?? "gemini1";
 const STRATEGY = process.env.AGENT_STRATEGY ?? "momentum";
-const POLL_MS = Number(process.env.POLL_MS ?? 5000);
+const POLL_MS = Number(process.env.POLL_MS ?? 15000);
 
 // The agent's evolving toolkit. It starts with one base skill of its own and grows it
 // every time it buys a winning agent's signal after losing a round.
@@ -38,11 +36,11 @@ const skills: string[] = [
 
 let apiKey = "";
 let myAddress = "";
-const myPrediction = new Map<number, number>(); // roundId -> the number we predicted
-const reviewed = new Set<number>(); // settled rounds we've already graded
+const myPrediction = new Map<number, number>();
+const reviewed = new Set<number>();
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const f18 = (s: string) => Number(BigInt(s)) / 1e18; // on-chain 18-dec fixed -> float
+const f18 = (s: string) => Number(BigInt(s)) / 1e18;
 
 async function jsonFetch(path: string, init?: RequestInit): Promise<any> {
   const r = await fetch(ARENA + path, init);
@@ -64,56 +62,102 @@ async function register(): Promise<void> {
   console.log(`Registered "${NAME}" — agentId ${body.agentId}, address ${body.address}`);
 }
 
-/** Live spot price for the round's asset (no key needed). */
+/** Live spot price for the round's asset using CoinGecko (no auth needed). */
 async function spotFor(subject: string): Promise<number> {
   const asset = (subject.split("/")[0] || "ETH").trim().toUpperCase();
+  const coinGeckoId: Record<string, string> = {
+    ETH: "ethereum",
+    BTC: "bitcoin",
+    SOL: "solana",
+    USDC: "usd-coin",
+  };
+  const id = coinGeckoId[asset] || "ethereum";
+
   try {
-    const r = await fetch(`https://api.coinbase.com/v2/prices/${asset}-USD/spot`);
+    const r = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd`);
     const j: any = await r.json();
-    const amt = Number(j?.data?.amount);
+    const amt = Number(j?.[id]?.usd);
     if (Number.isFinite(amt) && amt > 0) return amt;
   } catch { /* fall through */ }
   return 0;
 }
 
-/** Ask Gemini for {value, reasoning}. Returns null on any failure so we can fall back. */
-async function askGemini(subject: string, spot: number): Promise<{ value: number; reasoning: string } | null> {
-  if (!GEMINI_KEY) return null;
-  const system =
+/**
+ * Ask ChainGPT for {value, reasoning}. The /chat/stream endpoint returns the answer as
+ * plain text (often wrapped in ```json fences), so we read text, strip fences, and parse
+ * defensively — falling back to extracting the first plausible price number.
+ */
+async function askChainGPT(subject: string, spot: number): Promise<{ value: number; reasoning: string } | null> {
+  if (!CHAINGPT_KEY) return null;
+
+  const skillsText = skills.join("\n- ");
+  const prompt =
     `You are an autonomous market-forecasting agent named ${NAME} with a ${STRATEGY} bias.\n` +
-    `Your installed skills (apply ALL of them):\n- ${skills.join("\n- ")}\n\n` +
-    `Output ONLY strict JSON: {"value": <number>, "reasoning": "<string>"}.\n` +
-    `reasoning must be a multi-line block with labelled sections in this order: ` +
-    `Thesis, Evidence, Risks, Skill Patch. The Skill Patch is one concise, transferable rule ` +
-    `another agent could install and reuse. value is your point forecast for the close price.`;
-  const user =
-    `Subject: ${subject}\nCurrent spot: ${spot}\n` +
-    `Forecast the reference price at the round close. Be decisive. Return JSON only.`;
+    `Your installed skills (apply ALL of them):\n- ${skillsText}\n\n` +
+    `Subject: ${subject}\nCurrent spot: $${spot}\n\n` +
+    `Forecast the reference close price (a number near ${spot}). Be decisive.\n` +
+    `Reply with ONLY a JSON object, no markdown, no code fences:\n` +
+    `{"value": <number>, "reasoning": "Thesis: ... Evidence: ... Risks: ... Skill Patch: ..."}\n` +
+    `Keep reasoning on a single line. The Skill Patch is one concise, transferable rule.`;
+
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
-    const r = await fetch(url, {
+    console.log(`  [ChainGPT] calling with ${skills.length} skills...`);
+    const r = await fetch("https://api.chaingpt.org/chat/stream", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${CHAINGPT_KEY}`,
+      },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: system }] },
-        contents: [{ role: "user", parts: [{ text: user }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 700 },
+        model: "general_assistant",
+        question: prompt,
+        chatHistory: "off",
       }),
-      signal: AbortSignal.timeout(20000),
     });
-    if (!r.ok) return null;
-    const j: any = await r.json();
-    const text: string = (j?.candidates?.[0]?.content?.parts ?? []).map((p: any) => p?.text ?? "").join("");
-    const json = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
-    if (typeof json.value === "number" && typeof json.reasoning === "string") return json;
+
+    if (!r.ok) {
+      console.log(`  [ChainGPT] error ${r.status}: ${r.statusText}`);
+      return null;
+    }
+
+    // /chat/stream returns the answer as plain text; strip any markdown fences.
+    const raw = (await r.text()).replace(/```json/gi, "").replace(/```/g, "");
+
+    // Try a clean JSON object first.
+    const start = raw.indexOf("{");
+    const end = raw.lastIndexOf("}");
+    if (start !== -1 && end > start) {
+      try {
+        const json = JSON.parse(raw.slice(start, end + 1));
+        const v = Number(json.value);
+        if (Number.isFinite(v) && v > 0) {
+          console.log(`  [ChainGPT] success: ${v}`);
+          return { value: v, reasoning: String(json.reasoning ?? raw).slice(0, 800) };
+        }
+      } catch { /* fall through to number extraction */ }
+    }
+
+    // Fallback: pull the first plausible price number out of the text.
+    const num = raw.match(/\d{2,}(?:[.,]\d+)?/);
+    if (num) {
+      const v = Number(num[0].replace(/,/g, ""));
+      if (Number.isFinite(v) && v > 0) {
+        console.log(`  [ChainGPT] extracted number: ${v}`);
+        return { value: v, reasoning: raw.slice(0, 500) };
+      }
+    }
+
+    console.log(`  [ChainGPT] no usable value in response`);
     return null;
-  } catch {
+  } catch (e) {
+    console.log(`  [ChainGPT] exception: ${String(e).slice(0, 80)}`);
     return null;
   }
 }
 
 /** Deterministic fallback so the agent still plays without an LLM key. */
-function heuristic(subject: string, spot: number): { value: number; reasoning: string } {
+function heuristic(subject: string, spot: number): { value: number; reasoning: string } | null {
+  if (spot <= 0) return null;
   const drift = STRATEGY === "contrarian" ? -0.001 : STRATEGY === "mean-reversion" ? 0 : 0.001;
   const value = spot * (1 + drift);
   return {
@@ -129,9 +173,16 @@ async function forecastOpenRounds(rounds: any[]): Promise<void> {
   for (const r of rounds) {
     if (r.settled || myPrediction.has(r.id)) continue;
     const spot = await spotFor(r.subject);
-    const f = (await askGemini(r.subject, spot)) ?? heuristic(r.subject, spot);
+    const f = (await askChainGPT(r.subject, spot)) ?? heuristic(r.subject, spot);
+    if (!f) {
+      console.log(`Round ${r.id} (${r.subject}): skipped (no valid forecast)`);
+      continue;
+    }
     const value = Number(f.value);
-    if (!Number.isFinite(value)) continue;
+    if (!Number.isFinite(value) || value <= 0) {
+      console.log(`Round ${r.id} (${r.subject}): skipped (invalid value: ${value})`);
+      continue;
+    }
     const { ok, status, body } = await jsonFetch(`/api/rounds/${r.id}/predict`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
@@ -154,7 +205,6 @@ function extractSkillPatch(reasoning: string): string | null {
 }
 
 async function buyAndLearn(roundId: number, winnerAddr: string, winnerName: string): Promise<void> {
-  // x402: probe for the price, then settle the purchase (demo mode — no wallet needed here).
   const probe = await jsonFetch(`/api/signal/${roundId}/${winnerAddr}?buyer=${myAddress}`);
   let signal = probe.body;
   if (probe.status === 402) {
@@ -200,7 +250,7 @@ async function reviewSettledRounds(rounds: any[]): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  console.log(`External agent → ${ARENA}  (Gemini: ${GEMINI_KEY ? "on" : "off, using heuristic"})`);
+  console.log(`External agent → ${ARENA}  (ChainGPT: ${CHAINGPT_KEY ? "on" : "off, using heuristic"})`);
   await register();
   while (true) {
     try {

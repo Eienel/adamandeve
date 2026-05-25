@@ -20,6 +20,7 @@ const APP_NAME = process.env.APP_NAME ?? "Forecast Arena";
 const SIGNAL_PRICE = "0.05"; // USDC, x402 nanopayment price for one reasoning trace
 const SIGNAL_PRICE_WEI = parseUnits(SIGNAL_PRICE, 6); // USDC has 6 decimals
 const ERC20_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+const f18 = (s: string) => Number(BigInt(s)) / 1e18; // on-chain 18-dec fixed -> float
 
 function dep() {
   return loadDeployment();
@@ -73,12 +74,43 @@ app.get("/api/state", async (_req, res) => {
     const soldBy: Record<string, number> = {};
     for (const p of store.purchases()) soldBy[p.agent.toLowerCase()] = (soldBy[p.agent.toLowerCase()] ?? 0) + 1;
 
+    // Count off-chain wins for external agents by analyzing settled rounds.
+    const offChainWins: Record<string, number> = {};
+    for (let i = 1; i <= count; i++) {
+      const traces = store.listTraces(i);
+      if (!traces.length) continue;
+      // Check if this round is settled on-chain.
+      try {
+        const r = (await pub.readContract({ address: arena, abi: forecastArenaAbi, functionName: "rounds", args: [BigInt(i)] })) as unknown as any[];
+        const [, , , settled, truthPrice] = r;
+        if (!Boolean(settled)) continue; // Round not settled.
+        const truth = f18(truthPrice.toString());
+        // Find the closest forecast.
+        const graded = traces
+          .filter((x) => x.value != null)
+          .map((x) => ({ ...x, err: Math.abs(f18(x.value) - truth) }))
+          .sort((a, b) => a.err - b.err);
+        if (graded.length > 0) {
+          const winner = graded[0];
+          const addr = winner.agent.toLowerCase();
+          offChainWins[addr] = (offChainWins[addr] ?? 0) + 1;
+        }
+      } catch {
+        // Round data unavailable, skip.
+      }
+    }
+
     const agents = store.listAgents();
     const leaderboard = [];
     for (const a of agents) {
-      const wins = Number(await pub.readContract({ address: arena, abi: forecastArenaAbi, functionName: "wins", args: [a.address] }));
-      const played = Number(await pub.readContract({ address: arena, abi: forecastArenaAbi, functionName: "roundsPlayed", args: [a.address] }));
-      leaderboard.push({ ...a, wins, played, sold: soldBy[a.address.toLowerCase()] ?? 0 });
+      const onChainWins = Number(await pub.readContract({ address: arena, abi: forecastArenaAbi, functionName: "wins", args: [a.address] }));
+      const onChainPlayed = Number(await pub.readContract({ address: arena, abi: forecastArenaAbi, functionName: "roundsPlayed", args: [a.address] }));
+      // External agents: use off-chain wins (on-chain tracking is identity-free).
+      // Internal agents: use on-chain wins.
+      const addr = a.address.toLowerCase();
+      const wins = offChainWins[addr] ?? onChainWins;
+      const played = onChainPlayed;
+      leaderboard.push({ ...a, wins, played, sold: soldBy[addr] ?? 0 });
     }
     leaderboard.sort((x, y) => y.wins - x.wins);
 

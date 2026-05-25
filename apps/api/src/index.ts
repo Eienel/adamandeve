@@ -74,12 +74,19 @@ app.get("/api/state", async (_req, res) => {
     const soldBy: Record<string, number> = {};
     for (const p of store.purchases()) soldBy[p.agent.toLowerCase()] = (soldBy[p.agent.toLowerCase()] ?? 0) + 1;
 
-    // Count off-chain wins for external agents by analyzing settled rounds.
+    // Count off-chain wins and played for external agents by analyzing settled rounds.
     const offChainWins: Record<string, number> = {};
+    const offChainPlayed: Record<string, Set<number>> = {}; // agent -> set of round IDs they played
     for (let i = 1; i <= count; i++) {
       const traces = store.listTraces(i);
       if (!traces.length) continue;
-      // Check if this round is settled on-chain.
+      // Track which agents played this round.
+      for (const t of traces) {
+        const addr = t.agent.toLowerCase();
+        if (!offChainPlayed[addr]) offChainPlayed[addr] = new Set();
+        offChainPlayed[addr].add(i);
+      }
+      // Check if this round is settled on-chain to count wins.
       try {
         const r = (await pub.readContract({ address: arena, abi: forecastArenaAbi, functionName: "rounds", args: [BigInt(i)] })) as unknown as any[];
         const [, , , settled, truthPrice] = r;
@@ -105,11 +112,11 @@ app.get("/api/state", async (_req, res) => {
     for (const a of agents) {
       const onChainWins = Number(await pub.readContract({ address: arena, abi: forecastArenaAbi, functionName: "wins", args: [a.address] }));
       const onChainPlayed = Number(await pub.readContract({ address: arena, abi: forecastArenaAbi, functionName: "roundsPlayed", args: [a.address] }));
-      // External agents: use off-chain wins (on-chain tracking is identity-free).
-      // Internal agents: use on-chain wins.
+      // External agents: use off-chain wins and played (on-chain tracking is identity-free).
+      // Internal agents: use on-chain data.
       const addr = a.address.toLowerCase();
       const wins = offChainWins[addr] ?? onChainWins;
-      const played = onChainPlayed;
+      const played = (offChainPlayed[addr]?.size ?? 0) || onChainPlayed;
       leaderboard.push({ ...a, wins, played, sold: soldBy[addr] ?? 0 });
     }
     leaderboard.sort((x, y) => y.wins - x.wins);

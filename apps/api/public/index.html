@@ -421,6 +421,27 @@
         const amt = BigInt(amountWei).toString(16).padStart(64, "0");
         return "0x" + selector + addr + amt;
       }
+      const txUrl = (txHash) => txHash ? `https://testnet.arcscan.app/tx/${txHash}` : "";
+ codex/implement-circle-on-railway-for-arc-testnet-iiodm6
+
+codex/implement-circle-on-railway-for-arc-testnet-vyu2x1
+
+codex/implement-circle-on-railway-for-arc-testnet-71861i
+ main
+ main
+      const erc20TransferData = (to, amountWei) => {
+        const selector = "a9059cbb";
+        const addr = to.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+        const amt = BigInt(amountWei).toString(16).padStart(64, "0");
+        return `0x${selector}${addr}${amt}`;
+      };
+ codex/implement-circle-on-railway-for-arc-testnet-iiodm6
+
+ codex/implement-circle-on-railway-for-arc-testnet-vyu2x1
+
+main
+ main
+ main
       const subjectCell = (s) => {
         const [market, hz] = String(s || "").split(" · ");
         return market + (hz ? ` <span class="hz">${hz}</span>` : "");
@@ -571,12 +592,28 @@
         try {
           const probe = await fetch(`/api/signal/${roundId}/${agent}?buyer=${encodeURIComponent(buyer())}`);
           if (probe.status === 402) {
+ codex/implement-circle-on-railway-for-arc-testnet-iiodm6
+
+ codex/implement-circle-on-railway-for-arc-testnet-vyu2x1
+ main
             if (!window.ethereum) throw new Error("wallet not found");
             const [payer] = await window.ethereum.request({ method: "eth_requestAccounts" });
             localStorage.setItem("arenaBuyer", payer.toLowerCase());
             const state = await (await fetch("/api/state")).json();
             const usdc = state?.deployment?.usdc;
             if (!usdc) throw new Error("missing usdc address");
+ codex/implement-circle-on-railway-for-arc-testnet-iiodm6
+
+
+ codex/implement-circle-on-railway-for-arc-testnet-71861i
+            if (!window.ethereum) throw new Error("wallet not found");
+            const [payer] = await window.ethereum.request({ method: "eth_requestAccounts" });
+            const state = await (await fetch("/api/state")).json();
+            const usdc = state?.deployment?.usdc;
+            if (!usdc) throw new Error("missing usdc address");
+         main
+ main
+ main
             const shouldPay = window.confirm(
               `This signal costs 0.05 USDC via x402 demo payment.\n\nRound: ${roundId}\nAgent: ${agent}\n\nContinue and unlock reasoning?`,
             );
@@ -584,6 +621,13 @@
               if (btn) { btn.disabled = false; btn.style.opacity = "1"; btn.lastChild.textContent = " Buy signal · 0.05 USDC"; }
               return;
             }
+ codex/implement-circle-on-railway-for-arc-testnet-iiodm6
+
+ codex/implement-circle-on-railway-for-arc-testnet-vyu2x1
+
+ codex/implement-circle-on-railway-for-arc-testnet-71861i
+ main
+ main
             const amountWei = "50000000000000000"; // 0.05 * 1e18
             const txHash = await window.ethereum.request({
               method: "eth_sendTransaction",
@@ -597,6 +641,29 @@
               method: "POST",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({ buyer: buyer(), payer, txHash }),
+            data = await (await fetch(`/api/signal/${roundId}/${agent}/pay`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ buyer: buyer(), payer, txHash }),
+ codex/implement-circle-on-railway-for-arc-testnet-iiodm6
+            data = await (await fetch(`/api/signal/${roundId}/${agent}/pay`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ buyer: buyer(), payer, txHash }),
+
+ codex/implement-circle-on-railway-for-arc-testnet-vyu2x1
+            data = await (await fetch(`/api/signal/${roundId}/${agent}/pay`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ buyer: buyer(), payer, txHash }),
+
+      main
+            data = await (await fetch(`/api/signal/${roundId}/${agent}/pay`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ buyer, payer, txHash }),
+> main
+ main
             })).json();
           } else { data = await probe.json(); }
           if (!probe.ok && probe.status !== 402) throw new Error(data?.error || "failed to fetch signal");

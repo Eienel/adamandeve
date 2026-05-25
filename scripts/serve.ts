@@ -4,7 +4,7 @@ import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { parseUnits, parseEther, formatUnits, type Address } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { loadDeployment, makePublicClient, makeWalletClient, forecastArenaAbi, store, Mode } from "@arena/shared";
+import { loadDeployment, makePublicClient, makeWalletClient, forecastArenaAbi, identityRegistryAbi, store, Mode } from "@arena/shared";
 import { Resolver, PriceFeed } from "@arena/resolver";
 import {
   Agent,
@@ -92,6 +92,29 @@ async function balanceOf(pub: ReturnType<typeof makePublicClient>, address: Addr
     return await pub.getBalance({ address });
   } catch {
     return 0n;
+  }
+}
+
+/** True if `address` currently owns ERC-8004 tokenId `agentId` on the given registry.
+ *  Used to drop stale persisted agentIds (a redeployed/changed registry) that would
+ *  otherwise make submitForecast revert with BadAgentId(). */
+async function ownsAgentId(
+  pub: ReturnType<typeof makePublicClient>,
+  registry: Address,
+  agentId: bigint,
+  address: Address,
+): Promise<boolean> {
+  if (agentId === 0n) return false;
+  try {
+    const owner = (await pub.readContract({
+      address: registry,
+      abi: identityRegistryAbi,
+      functionName: "ownerOf",
+      args: [agentId],
+    })) as Address;
+    return owner.toLowerCase() === address.toLowerCase();
+  } catch {
+    return false;
   }
 }
 
@@ -232,12 +255,26 @@ async function main() {
   } else if (IS_ARC) {
     // EOA path: keys generated + printed for funding above. Agents auto-activate (and lazily
     // ERC-8004-register) once each wallet has USDC for gas.
+    // A persisted agentId is only valid if this wallet still owns that token on the current
+    // IdentityRegistry. If the volume carried a stale id (e.g. contracts were redeployed),
+    // reset it to 0 so the agent forecasts identity-free and re-registers cleanly — otherwise
+    // submitForecast reverts BadAgentId() forever.
+    let dirty = false;
     for (let i = 0; i < eoaKeys.length; i++) {
       const k = eoaKeys[i];
+      if (k.agentId !== "0") {
+        const owns = await ownsAgentId(pub, dep.identityRegistry, BigInt(k.agentId), k.address);
+        if (!owns) {
+          console.log(`Stale agentId ${k.agentId} for ${k.address} (not owned on registry) — resetting to re-register.`);
+          k.agentId = "0";
+          dirty = true;
+        }
+      }
       const agent = new Agent({ name: k.name, strategy: k.strategy, privateKey: k.privateKey, arena: dep.forecastArena, agentId: BigInt(k.agentId) });
       agents.push(agent);
       eoaFleet.push({ agent, key: k, idx: i, registered: k.agentId !== "0" });
     }
+    if (dirty) saveAgentKeys(eoaKeys);
   } else {
     for (let i = 0; i < fleetSize; i++) {
       const key = ANVIL_KEYS[i + 1];

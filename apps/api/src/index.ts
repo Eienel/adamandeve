@@ -67,14 +67,18 @@ app.get("/api/state", async (_req, res) => {
     const arena = d.forecastArena;
     const count = Number(await pub.readContract({ address: arena, abi: forecastArenaAbi, functionName: "roundCount" }));
     const rounds = [];
-    for (let i = count; i >= 1 && i > count - 25; i--) rounds.push(await readRound(arena, i));
+    for (let i = count; i >= 1 && i > count - 20; i--) rounds.push(await readRound(arena, i));
+
+    // Signals sold per agent (the seller is purchase.agent) — powers the "top sellers" view.
+    const soldBy: Record<string, number> = {};
+    for (const p of store.purchases()) soldBy[p.agent.toLowerCase()] = (soldBy[p.agent.toLowerCase()] ?? 0) + 1;
 
     const agents = store.listAgents();
     const leaderboard = [];
     for (const a of agents) {
       const wins = Number(await pub.readContract({ address: arena, abi: forecastArenaAbi, functionName: "wins", args: [a.address] }));
       const played = Number(await pub.readContract({ address: arena, abi: forecastArenaAbi, functionName: "roundsPlayed", args: [a.address] }));
-      leaderboard.push({ ...a, wins, played });
+      leaderboard.push({ ...a, wins, played, sold: soldBy[a.address.toLowerCase()] ?? 0 });
     }
     leaderboard.sort((x, y) => y.wins - x.wins);
 
@@ -89,19 +93,35 @@ app.get("/api/round/:id", async (req, res) => {
     const d = dep();
     const id = Number(req.params.id);
     const round = await readRound(d.forecastArena, id);
-    const forecasts = round.participants.map((agent) => {
-      const trace = store.getTrace(id, agent);
-      return {
-        agent,
-        agentName: trace?.agentName ?? agent,
-        strategy: trace?.strategy ?? "?",
-        traceHash: trace?.traceHash,
-        txHash: trace?.txHash,
-        value: round.settled ? trace?.value : null, // hidden until settled
-        reasoningAvailable: !!trace?.reasoning,
-      };
-    });
+    // Build from off-chain traces so BOTH our fleet and external agents (relayed via the open
+    // API) show up. Each trace's hash was anchored on-chain at submission for provenance.
+    const forecasts = store.listTraces(id).map((trace) => ({
+      agent: trace.agent,
+      agentName: trace.agentName ?? trace.agent,
+      strategy: trace.strategy ?? "?",
+      traceHash: trace.traceHash,
+      txHash: trace.txHash,
+      value: round.settled ? trace.value : null, // hidden until settled
+      reasoningAvailable: !!trace.reasoning,
+    }));
     res.json({ round, forecasts });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// Paginated rounds for the dashboard's "Older / Newer" navigation. page 0 = newest `size`.
+app.get("/api/rounds", async (req, res) => {
+  try {
+    const arena = dep().forecastArena;
+    const count = Number(await pub.readContract({ address: arena, abi: forecastArenaAbi, functionName: "roundCount" }));
+    const size = Math.min(50, Math.max(1, Number(req.query.size ?? 20)));
+    const page = Math.max(0, Number(req.query.page ?? 0));
+    const top = count - page * size; // highest round id on this page
+    const bottom = Math.max(1, top - size + 1); // lowest round id on this page
+    const rounds = [];
+    for (let i = top; i >= bottom && i >= 1; i--) rounds.push(await readRound(arena, i));
+    res.json({ roundCount: count, page, size, hasNewer: page > 0, hasOlder: bottom > 1, rounds });
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
@@ -283,13 +303,15 @@ app.post("/api/rounds/:id/predict", async (req, res) => {
     const reasoningText = reasoning ?? `Prediction: ${prediction}`;
     const traceHash = keccak256(toBytes(reasoningText));
 
-    // Submit forecast on-chain
+    // Submit forecast on-chain. External agents are relayed by the deployer (msg.sender =
+    // deployer) and aren't ERC-8004 identities, so submit identity-free (agentId 0) — passing a
+    // tokenId the deployer doesn't own would revert BadAgentId().
     const value = parseUnits(prediction.toFixed(6), 18);
     const txHash = await wallet.writeContract({
       address: d.forecastArena,
       abi: forecastArenaAbi,
       functionName: "submitForecast",
-      args: [BigInt(roundId), value, traceHash, BigInt(agent.agentId ?? 0)],
+      args: [BigInt(roundId), value, traceHash, 0n],
       account: wallet.account!,
       chain: wallet.chain,
     });

@@ -97,6 +97,7 @@ app.get("/api/signal/:roundId/:agent", (req, res) => {
   const buyer = String(req.query.buyer ?? req.header("x-buyer") ?? "anon");
   const trace = store.getTrace(roundId, agent);
   if (!trace) return res.status(404).json({ error: "no trace" });
+  if (!trace.reasoning || !trace.traceHash) return res.status(409).json({ error: "signal not ready: missing reasoning trace" });
 
   const settled = false; // reasoning is a paid product even after settle in this demo
   if (settled || store.isPurchased(roundId, agent, buyer)) {
@@ -121,6 +122,13 @@ app.post("/api/signal/:roundId/:agent/pay", (req, res) => {
     }
 
     const d = dep();
+ codex/implement-circle-on-railway-for-arc-testnet-vyu2x1
+    const trace = store.getTrace(roundId, agent);
+    if (!trace?.reasoning || !trace.traceHash) {
+      return res.status(409).json({ error: "signal not ready: missing reasoning trace" });
+    }
+
+ main
     const receipt = await pub.getTransactionReceipt({ hash: txHash });
     const paid = receipt.logs.some((log) => {
       if ((log.address || "").toLowerCase() !== d.usdc.toLowerCase()) return false;
@@ -137,7 +145,10 @@ app.post("/api/signal/:roundId/:agent/pay", (req, res) => {
     }
 
     store.recordPurchase({ roundId, agent, buyer, amount: SIGNAL_PRICE, at: Date.now() });
+ codex/implement-circle-on-railway-for-arc-testnet-vyu2x1
+
     const trace = store.getTrace(roundId, agent);
+ main
     res.json({ ok: true, roundId, agent, txHash, payer, reasoning: trace?.reasoning, traceHash: trace?.traceHash });
   })().catch((e) => res.status(500).json({ error: String(e) }));
 });

@@ -412,6 +412,15 @@
     <script>
       const f18 = (s) => s ? (Number(BigInt(s) / 10n ** 12n) / 1e6).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—";
       const short = (a) => a ? a.slice(0, 6) + "…" + a.slice(-4) : "—";
+      function txUrl(txHash) {
+        return txHash ? ("https://testnet.arcscan.app/tx/" + txHash) : "";
+      }
+      function erc20TransferData(to, amountWei) {
+        const selector = "a9059cbb";
+        const addr = String(to).toLowerCase().replace(/^0x/, "").padStart(64, "0");
+        const amt = BigInt(amountWei).toString(16).padStart(64, "0");
+        return "0x" + selector + addr + amt;
+      }
       const txUrl = (txHash) => txHash ? `https://testnet.arcscan.app/tx/${txHash}` : "";
  codex/implement-circle-on-railway-for-arc-testnet-iiodm6
 
@@ -628,6 +637,10 @@ main
                 data: erc20TransferData(agent, amountWei),
               }],
             });
+            data = await (await fetch(`/api/signal/${roundId}/${agent}/pay`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ buyer: buyer(), payer, txHash }),
             data = await (await fetch(`/api/signal/${roundId}/${agent}/pay`, {
               method: "POST",
               headers: { "content-type": "application/json" },

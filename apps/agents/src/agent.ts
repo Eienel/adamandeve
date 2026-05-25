@@ -25,6 +25,7 @@ export class Agent {
   private arena: Address;
   private agentId: bigint;
   private model: string;
+  private relayWallet?: ReturnType<typeof makeWalletClient>;
 
   constructor(cfg: AgentConfig) {
     this.name = cfg.name;
@@ -34,6 +35,8 @@ export class Agent {
     this.address = this.wallet.account!.address;
     this.arena = cfg.arena;
     this.agentId = cfg.agentId ?? 0n;
+    const relayKey = (process.env.RELAY_PRIVATE_KEY ?? process.env.DEPLOYER_PRIVATE_KEY) as `0x${string}` | undefined;
+    this.relayWallet = relayKey ? makeWalletClient(relayKey) : undefined;
     this.model =
       cfg.model ??
       process.env.AGENT_MODEL ??
@@ -52,13 +55,14 @@ export class Agent {
     const value = parseUnits(f.value.toFixed(6), 18);
     const traceHash = keccak256(toBytes(f.reasoning));
 
-    const txHash = await this.wallet.writeContract({
+    const signer = this.relayWallet ?? this.wallet;
+    const txHash = await signer.writeContract({
       address: this.arena,
       abi: forecastArenaAbi,
       functionName: "submitForecast",
       args: [BigInt(roundId), value, traceHash, this.agentId],
-      account: this.wallet.account!,
-      chain: this.wallet.chain,
+      account: signer.account!,
+      chain: signer.chain,
     });
     await this.pub.waitForTransactionReceipt({ hash: txHash });
 

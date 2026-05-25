@@ -109,8 +109,13 @@ app.get("/api/signal/:roundId/:agent", (req, res) => {
 });
 
 // Mock nanopayment settlement (stands in for Circle Gateway/Nanopayments on Arc).
+ codex/implement-circle-on-railway-for-arc-testnet-iiodm6
+app.post("/api/signal/:roundId/:agent/pay", async (req, res) => {
+  try {
+
 app.post("/api/signal/:roundId/:agent/pay", (req, res) => {
   (async () => {
+ main
     const roundId = Number(req.params.roundId);
     const agent = req.params.agent as `0x${string}`;
     const buyer = String(req.body?.buyer ?? "anon");
@@ -122,12 +127,18 @@ app.post("/api/signal/:roundId/:agent/pay", (req, res) => {
     }
 
     const d = dep();
+ codex/implement-circle-on-railway-for-arc-testnet-iiodm6
+
  codex/implement-circle-on-railway-for-arc-testnet-vyu2x1
+ main
     const trace = store.getTrace(roundId, agent);
     if (!trace?.reasoning || !trace.traceHash) {
       return res.status(409).json({ error: "signal not ready: missing reasoning trace" });
     }
 
+ codex/implement-circle-on-railway-for-arc-testnet-iiodm6
+
+ main
  main
     const receipt = await pub.getTransactionReceipt({ hash: txHash });
     const paid = receipt.logs.some((log) => {
@@ -145,12 +156,19 @@ app.post("/api/signal/:roundId/:agent/pay", (req, res) => {
     }
 
     store.recordPurchase({ roundId, agent, buyer, amount: SIGNAL_PRICE, at: Date.now() });
+ codex/implement-circle-on-railway-for-arc-testnet-iiodm6
+    return res.json({ ok: true, roundId, agent, txHash, payer, reasoning: trace.reasoning, traceHash: trace.traceHash });
+  } catch (e) {
+    return res.status(500).json({ error: String(e) });
+  }
+
  codex/implement-circle-on-railway-for-arc-testnet-vyu2x1
 
     const trace = store.getTrace(roundId, agent);
  main
     res.json({ ok: true, roundId, agent, txHash, payer, reasoning: trace?.reasoning, traceHash: trace?.traceHash });
   })().catch((e) => res.status(500).json({ error: String(e) }));
+ main
 });
 
 // ========== PHASE 1: AGENT REGISTRATION ==========

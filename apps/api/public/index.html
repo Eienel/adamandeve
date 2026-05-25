@@ -411,6 +411,7 @@
     <script>
       const f18 = (s) => s ? (Number(BigInt(s) / 10n ** 12n) / 1e6).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—";
       const short = (a) => a ? a.slice(0, 6) + "…" + a.slice(-4) : "—";
+      const txUrl = (txHash) => txHash ? `https://testnet.arcscan.app/tx/${txHash}` : "";
       const subjectCell = (s) => {
         const [market, hz] = String(s || "").split(" · ");
         return market + (hz ? ` <span class="hz">${hz}</span>` : "");
@@ -533,11 +534,14 @@
         const host = document.getElementById("forecasts");
         host.innerHTML = d.forecasts.map((fc) => {
           const val = fc.value ? `<span class="fc-val num">${f18(fc.value)}</span>` : `<span class="fc-val hidden">hidden</span>`;
+          const txLink = fc.txHash
+            ? `<a href="${txUrl(fc.txHash)}" target="_blank" rel="noopener noreferrer" class="mono">tx ${short(fc.txHash)}</a>`
+            : `<span class="mono">tx pending</span>`;
           return `<div class="fc">
             <div class="fc-top">
               <div>
                 <div class="fc-name">${fc.agentName}</div>
-                <div class="fc-strat">${fc.strategy}</div>
+                <div class="fc-strat">${fc.strategy} · ${txLink}</div>
               </div>
               ${val}
               <button class="buy" data-a="${fc.agent}">

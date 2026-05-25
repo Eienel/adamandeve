@@ -21,13 +21,10 @@ const APP_NAME = process.env.APP_NAME ?? "Forecast Arena";
 const SIGNAL_PRICE = "0.05"; // USDC, x402 nanopayment price for one reasoning trace
 const ERC20_TRANSFER_TOPIC = "0xddf252ad00000000000000000000000000000000000000000000000000000000";
 const SIGNAL_PRICE_WEI = parseUnits(SIGNAL_PRICE, 18);
-let cachedDeployment: any | null = null;
 
 function dep() {
   try {
-    const d = loadDeployment();
-    cachedDeployment = d;
-    return d;
+    return loadDeployment();
   } catch {
     // Railway can vary cwd between boot phases; fall back to common persisted paths.
     const candidates = [
@@ -39,12 +36,9 @@ function dep() {
 
     for (const file of candidates) {
       if (fs.existsSync(file)) {
-        const d = JSON.parse(fs.readFileSync(file, "utf8"));
-        cachedDeployment = d;
-        return d;
+        return JSON.parse(fs.readFileSync(file, "utf8"));
       }
     }
-    if (cachedDeployment) return cachedDeployment;
     throw new Error(`No deployment file found. Checked: ${candidates.join(", ")}`);
   }
 }

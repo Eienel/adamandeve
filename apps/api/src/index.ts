@@ -81,7 +81,17 @@ app.get("/api/state", async (_req, res) => {
 
     res.json({ appName: APP_NAME, deployment: d, roundCount: count, rounds, leaderboard, purchases: store.purchases().length });
   } catch (e) {
-    res.status(500).json({ error: String(e) });
+    console.error("[/api/state] failed:", e);
+    const d = cachedDeployment ?? null;
+    return res.json({
+      appName: APP_NAME,
+      deployment: d,
+      roundCount: 0,
+      rounds: [],
+      leaderboard: [],
+      purchases: store.purchases().length,
+      degraded: true,
+    });
   }
 });
 

@@ -250,6 +250,7 @@
       }
       .buy:hover { transform: translateY(-1px); background: #0c8a5f; }
       .buy:active { transform: translateY(0); }
+      .buy:disabled { opacity: 0.6; cursor: not-allowed; }
       .buy svg path, .buy svg rect { stroke: #06231b; fill: #06231b; }
       .buy svg rect { stroke: none; }
       .reason { margin-top: 12px; border: 1px solid var(--line-2); border-radius: 12px; padding: 13px 14px; background: rgba(14,143,176,0.06); display: none; animation: reveal .35s ease; }
@@ -553,7 +554,7 @@
                 <div class="fc-strat">${fc.strategy} · ${txLink}</div>
               </div>
               ${val}
-              <button class="buy" data-a="${fc.agent}">
+              <button class="buy" data-a="${fc.agent}" data-r="${id}">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M7 11V8a5 5 0 0110 0v3" stroke-width="2.2" stroke-linecap="round"/><rect x="4" y="11" width="16" height="10" rx="2" ry="2" stroke-width="2.2"/></svg>
                 Buy signal · 0.05 USDC
               </button>
@@ -561,66 +562,92 @@
             <div class="reason" id="r-${fc.agent}"></div>
           </div>`;
         }).join("");
-        host.querySelectorAll(".buy").forEach((b) => b.onclick = () => buy(id, b.dataset.a, b));
+        host.querySelectorAll(".buy").forEach((b) => b.onclick = () => buy(Number(b.dataset.r), b.dataset.a, b));
         if (!silent) panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
       }
 
       async function buy(roundId, agent, btn) {
-        if (btn) { btn.disabled = true; btn.style.opacity = ".6"; btn.lastChild.textContent = " Settling…"; }
-        let data;
-        try {
-          const probe = await fetch(`/api/signal/${roundId}/${agent}?buyer=${encodeURIComponent(buyer())}`);
-          if (probe.status === 402) {
-            if (!window.ethereum) throw new Error("wallet not found");
-            const [payer] = await window.ethereum.request({ method: "eth_requestAccounts" });
-            localStorage.setItem("arenaBuyer", payer.toLowerCase());
-            const state = await (await fetch("/api/state")).json();
-            const usdc = state?.deployment?.usdc;
-            if (!usdc) throw new Error("missing usdc address");
+        if (btn) { btn.disabled = true; btn.style.opacity = ".6"; btn.textContent = "⏳ Initiating transaction…"; }
         
-            const shouldPay = window.confirm(
-              `This signal costs 0.05 USDC via x402 demo payment.\n\nRound: ${roundId}\nAgent: ${agent}\n\nContinue and unlock reasoning?`,
-            );
-            if (!shouldPay) {
-              if (btn) { btn.disabled = false; btn.style.opacity = "1"; btn.lastChild.textContent = " Buy signal · 0.05 USDC"; }
-              return;
-            }
-
-            const amountWei = "50000000000000000"; // 0.05 * 1e18
-            const txHash = await window.ethereum.request({
-              method: "eth_sendTransaction",
-              params: [{
-                from: payer,
-                to: usdc,
-                data: erc20TransferData(agent, amountWei),
-              }],
-            });
-            data = await (await fetch(`/api/signal/${roundId}/${agent}/pay`, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ buyer: buyer(), payer, txHash }),
-            })).json();
-          } else { 
-            data = await probe.json(); 
+        try {
+          // Check if wallet exists
+          if (!window.ethereum) {
+            throw new Error("MetaMask or Web3 wallet not found. Please install MetaMask.");
           }
-          if (!probe.ok && probe.status !== 402) throw new Error(data?.error || "failed to fetch signal");
-          if (!data?.reasoning || !data?.traceHash) throw new Error("signal trace not ready yet");
-        } catch (e) { 
-          console.error("buy error:", e);
-          if (btn) { btn.disabled = false; btn.style.opacity = "1"; } 
-          return; 
-        }
 
-        const reasoning = (data.reasoning ?? "No reasoning recorded.").replace(/</g, "&lt;");
-        const sources = data.sources && data.sources.length > 0
-          ? `<div class="sources"><strong>Sources:</strong><ul>${data.sources.map(s => `<li>${s}</li>`).join("")}</ul></div>`
-          : "";
-        const modalHtml =
-          `<div class="meta"><span class="ok"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> Unlocked</span></div>` +
-          `<div class="reasoning-text">${reasoning}</div>` +
-          sources;
-        openModal(modalHtml);
-        if (btn) btn.style.display = "none";
+          // Request account connection
+          const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+          const payer = accounts[0];
+          localStorage.setItem("arenaBuyer", payer.toLowerCase());
+
+          // Get deployment info (includes USDC address)
+          const state = await (await fetch("/api/state")).json();
+          const usdc = state?.deployment?.usdc;
+          if (!usdc) throw new Error("USDC address not available");
+
+          // Confirm payment with user
+          const shouldPay = window.confirm(
+            `This signal costs 0.05 USDC on Arc testnet.\n\nRound: ${roundId}\nAgent: ${agent}\n\nContinue with payment?`
+          );
+          if (!shouldPay) {
+            throw new Error("User cancelled transaction");
+          }
+
+          if (btn) btn.textContent = "⏳ Waiting for signature…";
+
+          // Send USDC transfer transaction
+          const amountWei = "50000000000000000"; // 0.05 USDC (18 decimals)
+          const txHash = await window.ethereum.request({
+            method: "eth_sendTransaction",
+            params: [{
+              from: payer,
+              to: usdc,
+              data: erc20TransferData(agent, amountWei),
+            }],
+          });
+
+          if (btn) btn.textContent = "⏳ Processing payment…";
+
+          // Verify payment with backend
+          const paymentResponse = await fetch(`/api/signal/${roundId}/${agent}/pay`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ buyer: buyer(), payer, txHash }),
+          });
+
+          if (!paymentResponse.ok) {
+            const error = await paymentResponse.json();
+            throw new Error(error?.error || `Payment verification failed (${paymentResponse.status})`);
+          }
+
+          const data = await paymentResponse.json();
+
+          if (!data?.reasoning || !data?.traceHash) {
+            throw new Error("Signal reasoning not available");
+          }
+
+          // Display reasoning in modal
+          const reasoning = (data.reasoning ?? "No reasoning recorded.").replace(/</g, "&lt;");
+          const sources = data.sources && data.sources.length > 0
+            ? `<div class="sources"><strong>Sources:</strong><ul>${data.sources.map(s => `<li>${s}</li>`).join("")}</ul></div>`
+            : "";
+          const modalHtml =
+            `<div class="meta"><span class="ok"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> Payment confirmed · Signal unlocked</span></div>` +
+            `<div class="reasoning-text">${reasoning}</div>` +
+            sources;
+          openModal(modalHtml);
+          if (btn) btn.style.display = "none";
+
+        } catch (e) {
+          const errorMsg = e?.message || String(e);
+          console.error("buy error:", e);
+          alert("Payment failed: " + errorMsg);
+          if (btn) { 
+            btn.disabled = false; 
+            btn.style.opacity = "1"; 
+            btn.textContent = "🔓 Buy signal · 0.05 USDC";
+          }
+        }
       }
 
       document.getElementById("enterBtn").onclick = () =>

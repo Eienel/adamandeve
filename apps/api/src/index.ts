@@ -77,6 +77,7 @@ app.get("/api/round/:id", async (req, res) => {
         agentName: trace?.agentName ?? agent,
         strategy: trace?.strategy ?? "?",
         traceHash: trace?.traceHash,
+        txHash: trace?.txHash,
         value: round.settled ? trace?.value : null, // hidden until settled
         reasoningAvailable: !!trace?.reasoning,
       };

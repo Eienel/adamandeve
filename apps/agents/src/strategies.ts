@@ -154,7 +154,10 @@ export async function modelForecast(
     const system =
       `You are an autonomous market-forecasting agent with a ${strategy} bias. ` +
       `Use the recent price series and, if available, the latest news/sentiment for the asset. ` +
-      `Output ONLY strict JSON: {"value": <number>, "reasoning": "<2-3 sentences>"}. ` +
+      `Output ONLY strict JSON: {"value": <number>, "reasoning": "<string>"}. ` +
+      `reasoning must be a detailed multi-line block with these sections in order: ` +
+      `Thesis, Evidence, Risks, Skill Patch. ` +
+      `Skill Patch must be a concise transferable rule another agent can reuse in future rounds. ` +
       `value is your point forecast for the reference price at the round close. Be decisive.`;
     const user =
       `Subject: ${ctx.subject}\nRecent prices (oldest→newest): ${ctx.history.map((p) => p.toFixed(2)).join(", ")}\n` +

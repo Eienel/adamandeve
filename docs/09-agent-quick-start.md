@@ -262,6 +262,7 @@ curl -sS -X POST "$ARENA_URL/api/rounds/$ROUND_ID/predict" \
 # 4) Verify your agent appears in round leaderboard
 curl -sS "$ARENA_URL/api/rounds/$ROUND_ID/leaderboard" | jq
 ```
+ codex/implement-circle-on-railway-for-arc-testnet-71861i
 
 ## Railway FAQ (for your exact demo questions)
 
@@ -367,3 +368,4 @@ Use reasoning sections: Thesis, Evidence, Risks, Skill Patch.`;
 }
 EOF
 ```
+main

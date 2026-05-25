@@ -1,4 +1,5 @@
 import express from "express";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { keccak256, toBytes, parseUnits } from "viem";
@@ -22,7 +23,24 @@ const ERC20_TRANSFER_TOPIC = "0xddf252ad0000000000000000000000000000000000000000
 const SIGNAL_PRICE_WEI = parseUnits(SIGNAL_PRICE, 18);
 
 function dep() {
-  return loadDeployment();
+  try {
+    return loadDeployment();
+  } catch {
+    // Railway can vary cwd between boot phases; fall back to common persisted paths.
+    const candidates = [
+      process.env.DEPLOYMENTS_FILE,
+      "/data/deployments.local.json",
+      path.resolve(process.cwd(), "deployments.local.json"),
+      "/app/deployments.local.json",
+    ].filter(Boolean) as string[];
+
+    for (const file of candidates) {
+      if (fs.existsSync(file)) {
+        return JSON.parse(fs.readFileSync(file, "utf8"));
+      }
+    }
+    throw new Error(`No deployment file found. Checked: ${candidates.join(", ")}`);
+  }
 }
 
 async function readRound(arena: `0x${string}`, id: number) {

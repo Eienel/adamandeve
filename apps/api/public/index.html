@@ -435,18 +435,48 @@
       let current = null;
       const shown = {}; // metric -> last value, for count-up
 
+      // Arc testnet network params so we can auto-add/switch the wallet to the right chain.
+      const ARC_CHAIN_ID_HEX = "0x4cef52"; // 5042002
+      const ARC_PARAMS = {
+        chainId: ARC_CHAIN_ID_HEX,
+        chainName: "Arc Testnet",
+        nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
+        rpcUrls: ["https://rpc.testnet.arc.network"],
+        blockExplorerUrls: ["https://testnet.arcscan.app"],
+      };
+      const isMobile = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+      // Make sure the wallet is on Arc testnet before we ask it to send USDC.
+      async function ensureArcNetwork() {
+        try {
+          await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: ARC_CHAIN_ID_HEX }] });
+        } catch (e) {
+          if (e?.code === 4902 || /Unrecognized chain/i.test(e?.message || "")) {
+            await window.ethereum.request({ method: "wallet_addEthereumChain", params: [ARC_PARAMS] });
+          } else if (e?.code !== 4001) {
+            console.error("switch network:", e);
+          }
+        }
+      }
+
       // Wallet connection via the standard EIP-1193 provider (MetaMask etc.) — no external CDN.
       async function connectWallet() {
         if (typeof window.ethereum === "undefined") {
-          alert("MetaMask or another Web3 wallet is required. Please install one.");
+          if (isMobile()) {
+            // Mobile browsers have no injected wallet — reopen this page inside MetaMask's in-app browser.
+            window.location.href = "https://metamask.app.link/dapp/" + window.location.host + window.location.pathname;
+            return;
+          }
+          alert("No Web3 wallet found. Install the MetaMask extension (or another wallet) and reload.");
           return;
         }
         try {
           const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
           connectedAccount = accounts[0];
           updateWalletButton();
+          await ensureArcNetwork();
         } catch (e) {
-          console.error("Wallet connection failed:", e);
+          if (e?.code !== 4001) console.error("Wallet connection failed:", e); // 4001 = user rejected
         }
       }
 
@@ -617,6 +647,7 @@
         if (btn) { btn.disabled = true; btn.style.opacity = ".6"; if (btn.lastChild) btn.lastChild.textContent = " Confirm in wallet…"; }
         let data;
         try {
+          await ensureArcNetwork(); // make sure we're on Arc before transferring
           // 1. Send the 0.05 USDC transfer (payer → agent) — user approves in their wallet.
           const txHash = await window.ethereum.request({
             method: "eth_sendTransaction",

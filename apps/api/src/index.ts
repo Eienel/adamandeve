@@ -18,6 +18,7 @@ app.use(express.json());
 const pub = makePublicClient();
 const PORT = Number(process.env.PORT ?? 8787);
 const APP_NAME = process.env.APP_NAME ?? "Forecast Arena";
+const DATA_DIR = process.env.DATA_DIR ?? "/data";
 const SIGNAL_PRICE = "0.05"; // USDC, x402 nanopayment price for one reasoning trace
 const ERC20_TRANSFER_TOPIC = "0xddf252ad00000000000000000000000000000000000000000000000000000000";
 const SIGNAL_PRICE_WEI = parseUnits(SIGNAL_PRICE, 18);
@@ -29,13 +30,14 @@ function dep() {
     // Railway can vary cwd between boot phases; fall back to common persisted paths.
     const candidates = [
       process.env.DEPLOYMENTS_FILE,
-      "/data/deployments.local.json",
+      path.join(DATA_DIR, "deployments.local.json"),
       path.resolve(process.cwd(), "deployments.local.json"),
       "/app/deployments.local.json",
     ].filter(Boolean) as string[];
 
     for (const file of candidates) {
       if (fs.existsSync(file)) {
+        console.log(`[dep] Loading deployment from: ${file}`);
         return JSON.parse(fs.readFileSync(file, "utf8"));
       }
     }
@@ -82,15 +84,15 @@ app.get("/api/state", async (_req, res) => {
     res.json({ appName: APP_NAME, deployment: d, roundCount: count, rounds, leaderboard, purchases: store.purchases().length });
   } catch (e) {
     console.error("[/api/state] failed:", e);
-return res.json({
-  appName: APP_NAME,
-  deployment: null,
-  roundCount: 0,
-  rounds: [],
-  leaderboard: [],
-  purchases: store.purchases().length,
-  degraded: true,
-});
+    return res.json({
+      appName: APP_NAME,
+      deployment: null,
+      roundCount: 0,
+      rounds: [],
+      leaderboard: [],
+      purchases: store.purchases().length,
+      degraded: true,
+    });
   }
 });
 

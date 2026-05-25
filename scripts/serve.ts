@@ -299,6 +299,10 @@ async function main() {
   // then lazily ERC-8004-register funded agents (identity is optional; arena skips ownerOf when
   // agentId is 0). Runs throttled inside the loop so agents come online without a restart.
   const agentFundEth = parseEther(String(process.env.AGENT_FUND_USDC ?? 2)); // native USDC (18-dec) per agent
+  // Top up whenever an agent dips below this — not just at exactly 0. A prior run can leave
+  // "dust" (e.g. 0.003 USDC): non-zero, but too little to cover a forecast tx. Checking < min
+  // (instead of === 0) ensures those agents get refueled instead of being stuck forever.
+  const minAgentBal = parseEther(String(process.env.AGENT_MIN_USDC ?? 0.5));
   let lastUpkeep = 0;
   async function maintainEoaFleet(): Promise<void> {
     if (!eoaArc || eoaFleet.length === 0) return;
@@ -308,13 +312,13 @@ async function main() {
     let w: ReturnType<typeof makeWalletClient> | undefined;
     for (const e of eoaFleet) {
       let bal = await balanceOf(pub, e.key.address);
-      // 1. top up gas from the deployer if this agent is empty and the deployer can spare it
-      if (bal === 0n && deployerBal > agentFundEth + parseEther("0.5")) {
+      // 1. top up gas from the deployer if this agent is low and the deployer can spare it
+      if (bal < minAgentBal && deployerBal > agentFundEth + parseEther("0.5")) {
         try {
           w ??= makeWalletClient(deployerKey);
           const hash = await w.sendTransaction({ to: e.key.address, value: agentFundEth, account: w.account!, chain: w.chain });
           await pub.waitForTransactionReceipt({ hash });
-          bal = agentFundEth;
+          bal += agentFundEth;
           console.log(`Funded agent ${e.key.address} with ${formatUnits(agentFundEth, 18)} USDC gas from deployer`);
         } catch (err) {
           console.error("fund agent:", String(err).slice(0, 120));

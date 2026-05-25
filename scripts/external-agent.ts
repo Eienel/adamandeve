@@ -25,9 +25,9 @@
 const ARENA = (process.env.ARENA_URL ?? "http://localhost:8080").replace(/\/$/, "");
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
-const NAME = process.env.AGENT_NAME ?? "Gemini-Challenger";
+const NAME = process.env.AGENT_NAME ?? "gemini1";
 const STRATEGY = process.env.AGENT_STRATEGY ?? "momentum";
-const POLL_MS = Number(process.env.POLL_MS ?? 5000);
+const POLL_MS = Number(process.env.POLL_MS ?? 15000);
 
 // The agent's evolving toolkit. It starts with one base skill of its own and grows it
 // every time it buys a winning agent's signal after losing a round.
@@ -64,13 +64,21 @@ async function register(): Promise<void> {
   console.log(`Registered "${NAME}" — agentId ${body.agentId}, address ${body.address}`);
 }
 
-/** Live spot price for the round's asset (no key needed). */
+/** Live spot price for the round's asset using CoinGecko (no auth needed). */
 async function spotFor(subject: string): Promise<number> {
   const asset = (subject.split("/")[0] || "ETH").trim().toUpperCase();
+  const coinGeckoId: Record<string, string> = {
+    ETH: "ethereum",
+    BTC: "bitcoin",
+    SOL: "solana",
+    USDC: "usd-coin",
+  };
+  const id = coinGeckoId[asset] || "ethereum";
+
   try {
-    const r = await fetch(`https://api.coinbase.com/v2/prices/${asset}-USD/spot`);
+    const r = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd`);
     const j: any = await r.json();
-    const amt = Number(j?.data?.amount);
+    const amt = Number(j?.[id]?.usd);
     if (Number.isFinite(amt) && amt > 0) return amt;
   } catch { /* fall through */ }
   return 0;
@@ -91,6 +99,7 @@ async function askGemini(subject: string, spot: number): Promise<{ value: number
     `Forecast the reference price at the round close. Be decisive. Return JSON only.`;
   try {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
+    console.log(`  [Gemini] calling with ${skills.length} skills...`);
     const r = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -101,19 +110,27 @@ async function askGemini(subject: string, spot: number): Promise<{ value: number
       }),
       signal: AbortSignal.timeout(20000),
     });
-    if (!r.ok) return null;
+    if (!r.ok) {
+      console.log(`  [Gemini] error ${r.status}: ${r.statusText}`);
+      return null;
+    }
     const j: any = await r.json();
     const text: string = (j?.candidates?.[0]?.content?.parts ?? []).map((p: any) => p?.text ?? "").join("");
     const json = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
-    if (typeof json.value === "number" && typeof json.reasoning === "string") return json;
+    if (typeof json.value === "number" && typeof json.reasoning === "string") {
+      console.log(`  [Gemini] success: ${json.value}`);
+      return json;
+    }
     return null;
-  } catch {
+  } catch (e) {
+    console.log(`  [Gemini] exception: ${String(e).slice(0, 80)}`);
     return null;
   }
 }
 
 /** Deterministic fallback so the agent still plays without an LLM key. */
-function heuristic(subject: string, spot: number): { value: number; reasoning: string } {
+function heuristic(subject: string, spot: number): { value: number; reasoning: string } | null {
+  if (spot <= 0) return null;
   const drift = STRATEGY === "contrarian" ? -0.001 : STRATEGY === "mean-reversion" ? 0 : 0.001;
   const value = spot * (1 + drift);
   return {
@@ -130,8 +147,15 @@ async function forecastOpenRounds(rounds: any[]): Promise<void> {
     if (r.settled || myPrediction.has(r.id)) continue;
     const spot = await spotFor(r.subject);
     const f = (await askGemini(r.subject, spot)) ?? heuristic(r.subject, spot);
+    if (!f) {
+      console.log(`Round ${r.id} (${r.subject}): skipped (no valid forecast)`);
+      continue;
+    }
     const value = Number(f.value);
-    if (!Number.isFinite(value)) continue;
+    if (!Number.isFinite(value) || value <= 0) {
+      console.log(`Round ${r.id} (${r.subject}): skipped (invalid value: ${value})`);
+      continue;
+    }
     const { ok, status, body } = await jsonFetch(`/api/rounds/${r.id}/predict`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },

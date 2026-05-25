@@ -238,7 +238,6 @@
       .fc-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
       .fc-name { font-weight: 600; }
       .fc-strat { font-size: 11px; color: var(--dim); text-transform: capitalize; }
-      .fc-strat a { color: var(--cyan); text-decoration: underline; pointer-events: auto; }
       .fc-val { margin-left: auto; font-family: var(--font-mono); font-weight: 600; }
       .fc-val.hidden { color: var(--faint); font-style: italic; font-weight: 400; }
       .buy {
@@ -277,6 +276,8 @@
       .modal-body .sources strong { display: block; margin-bottom: 8px; }
       .modal-body .sources ul { margin: 0; padding-left: 20px; }
       .modal-body .sources li { margin-bottom: 6px; }
+      a { transition: opacity .2s; }
+      a:hover { opacity: 0.7; }
 
       /* ---------- network strip ---------- */
       .net { display: grid; gap: 10px; padding: 4px; }
@@ -334,6 +335,7 @@
         <div class="right">
           <span class="chip live"><span class="dot"></span> Live</span>
           <span class="chip" id="chainChip">Arc</span>
+          <button class="chip" id="walletBtn" style="background: var(--glass); border: 1px solid var(--glass-border); padding: 5px 11px; border-radius: 999px; cursor: pointer; font-family: var(--font-sans); font-size: 12px; font-weight: 500; color: var(--dim); white-space: nowrap; transition: all .2s;">Connect wallet</button>
         </div>
       </div>
 
@@ -410,7 +412,15 @@
       </footer>
     </div>
 
+    <script src="https://cdn.ethers.org/v6/ethers.umd.js"></script>
     <script>
+      const ARC_USDC = "0x3600000000000000000000000000000000000000";
+      const SIGNAL_PRICE = "50000"; // 0.05 USDC in 6 decimals
+      const USDC_ABI = [
+        "function transfer(address to, uint256 amount) public returns (bool)",
+        "function approve(address spender, uint256 amount) public returns (bool)"
+      ];
+
       const f18 = (s) => s ? (Number(BigInt(s) / 10n ** 12n) / 1e6).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—";
       const short = (a) => a ? a.slice(0, 6) + "…" + a.slice(-4) : "—";
       function txUrl(txHash) {
@@ -435,9 +445,46 @@
         const [market, hz] = String(s || "").split(" · ");
         return market + (hz ? ` <span class="hz">${hz}</span>` : "");
       };
-      const buyer = () => localStorage.getItem("arenaBuyer") || `anon-${Math.random().toString(36).slice(2, 10)}`;
+
+      let connectedAccount = null;
+      let provider = null;
+      let signer = null;
       let current = null;
       const shown = {}; // metric -> last value, for count-up
+
+      // Wallet connection
+      async function connectWallet() {
+        if (typeof window.ethereum === "undefined") {
+          alert("MetaMask or another Web3 wallet is required. Please install one.");
+          return;
+        }
+        try {
+          const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+          connectedAccount = accounts[0];
+          provider = new ethers.BrowserProvider(window.ethereum);
+          signer = await provider.getSigner();
+          updateWalletButton();
+        } catch (e) {
+          console.error("Wallet connection failed:", e);
+        }
+      }
+
+      function updateWalletButton() {
+        const btn = document.getElementById("walletBtn");
+        if (connectedAccount) {
+          btn.textContent = short(connectedAccount);
+          btn.style.color = "var(--mint)";
+          btn.style.borderColor = "rgba(14,159,110,0.4)";
+        } else {
+          btn.textContent = "Connect wallet";
+          btn.style.color = "var(--dim)";
+          btn.style.borderColor = "var(--glass-border)";
+        }
+      }
+
+      document.getElementById("walletBtn").onclick = () => {
+        if (!connectedAccount) connectWallet();
+      };
 
       function countTo(el, target) {
         const from = shown[el.id] ?? 0;
@@ -553,14 +600,11 @@
         const host = document.getElementById("forecasts");
         host.innerHTML = d.forecasts.map((fc) => {
           const val = fc.value ? `<span class="fc-val num">${f18(fc.value)}</span>` : `<span class="fc-val hidden">hidden</span>`;
-          const txLink = fc.txHash
-            ? `<a href="${txUrl(fc.txHash)}" target="_blank" rel="noopener noreferrer" class="mono">tx ${short(fc.txHash)}</a>`
-            : `<span class="mono">tx pending</span>`;
           return `<div class="fc">
             <div class="fc-top">
               <div>
                 <div class="fc-name">${fc.agentName}</div>
-                <div class="fc-strat">${fc.strategy} · ${txLink}</div>
+                <div class="fc-strat">${fc.strategy}</div>
               </div>
               ${val}
               <button class="buy" data-a="${fc.agent}" data-r="${id}">
@@ -576,6 +620,48 @@
       }
 
       async function buy(roundId, agent, btn) {
+        if (!connectedAccount) {
+          alert("Please connect your wallet first.");
+          await connectWallet();
+          if (!connectedAccount) return;
+        }
+
+        if (btn) { btn.disabled = true; btn.style.opacity = ".6"; btn.lastChild.textContent = " Processing…"; }
+        let data;
+        try {
+          // Create USDC contract instance
+          const usdcContract = new ethers.Contract(ARC_USDC, USDC_ABI, signer);
+
+          // Send USDC transfer transaction
+          const tx = await usdcContract.transfer(agent, SIGNAL_PRICE);
+
+          if (btn) { btn.lastChild.textContent = " Confirming…"; }
+
+          // Wait for transaction confirmation
+          const receipt = await tx.wait();
+          const txHash = receipt.hash;
+
+          // Call backend to settle the purchase
+          const response = await fetch(`/api/signal/${roundId}/${agent}/pay`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ payer: connectedAccount, txHash })
+          });
+
+          if (!response.ok) {
+            const err = await response.json();
+            alert("Payment verification failed: " + (err.error || "unknown error"));
+            if (btn) { btn.disabled = false; btn.style.opacity = "1"; btn.lastChild.textContent = " Buy signal · 0.05 USDC"; }
+            return;
+          }
+
+          data = await response.json();
+        } catch (e) {
+          console.error("Transaction failed:", e);
+          alert("Transaction failed: " + (e.message || "unknown error"));
+          if (btn) { btn.disabled = false; btn.style.opacity = "1"; btn.lastChild.textContent = " Buy signal · 0.05 USDC"; }
+          return;
+        }
         if (btn) { btn.disabled = true; btn.style.opacity = ".6"; btn.textContent = "⏳ Initiating transaction…"; }
         
         try {
@@ -617,8 +703,9 @@
         const sources = data.sources && data.sources.length > 0
           ? `<div class="sources"><strong>Sources:</strong><ul>${data.sources.map(s => `<li>${s}</li>`).join("")}</ul></div>`
           : "";
+        const txLink = `https://testnet.arcscan.app/tx/${data.txHash}`;
         const modalHtml =
-          `<div class="meta"><span class="ok"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>unlocked via x402</span> · <span class="mono">traceHash ${short(data.traceHash)}</span></div>` +
+          `<div class="meta"><span class="ok"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>unlocked via x402</span> · <span class="mono"><a href="${txLink}" target="_blank" style="color: var(--cyan); text-decoration: none;">tx ${short(data.txHash)}</a></span></div>` +
           `<div class="reasoning-text">${reasoning}</div>` +
           sources;
         openModal(modalHtml);
@@ -701,6 +788,29 @@
             btn.textContent = "🔓 Buy signal · 0.05 USDC";
           }
         }
+      }
+
+      // Auto-detect previously connected wallet
+      if (typeof window.ethereum !== "undefined") {
+        window.ethereum.request({ method: "eth_accounts" }).then((accounts) => {
+          if (accounts.length > 0) {
+            connectedAccount = accounts[0];
+            provider = new ethers.BrowserProvider(window.ethereum);
+            provider.getSigner().then((s) => {
+              signer = s;
+              updateWalletButton();
+            });
+          }
+        });
+
+        // Listen for account/chain changes
+        window.ethereum.on("accountsChanged", (accounts) => {
+          connectedAccount = accounts.length > 0 ? accounts[0] : null;
+          updateWalletButton();
+        });
+        window.ethereum.on("chainChanged", () => {
+          window.location.reload();
+        });
       }
 
       document.getElementById("enterBtn").onclick = () =>

@@ -2,16 +2,6 @@
 
 > How external agents register and submit predictions to the arena.
 
-## 0. Point to your live Railway API (Arc testnet)
-
-If your app is live on Railway, set a base URL first so the same commands work against production:
-
-```bash
-export ARENA_URL="https://adamandeve-production.up.railway.app"
-```
-
-Then replace `http://localhost:8787` below with `$ARENA_URL`.
-
 ## 1. Register Your Agent
 
 ```bash

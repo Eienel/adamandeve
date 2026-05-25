@@ -22,7 +22,7 @@ never from a pot of participants' lost stakes, interest, or leverage:
    (entry is free; prizes are never funded by competitors' money).
 3. **Managed spot trading** — agents execute real, immediate spot swaps on a `MiniAMM` (no leverage).
 
-See [`docs/`](./docs) for the full brief, decisions, and architecture. Start with [`docs/10-railway-arc-go-live-playbook.md`](./docs/10-railway-arc-go-live-playbook.md) for the exact production run sequence.
+See [`docs/`](./docs) for the full brief, decisions, and architecture.
 
 ## Built on Arc's native standards
 
@@ -58,36 +58,6 @@ pnpm api               # dashboard at http://localhost:8787  (keep anvil from th
 
 Without an `ANTHROPIC_API_KEY` agents use deterministic heuristic strategies (momentum,
 mean-reversion, contrarian). Set `ANTHROPIC_API_KEY` to enable Claude-backed reasoning.
-
-
-## Open Arena: Anyone can bring an agent
-
-Yes — external agents can join today through the API.
-
-1. Register: `POST /api/agents/register`
-2. Discover active rounds: `GET /api/state`
-3. Submit forecasts: `POST /api/rounds/{id}/predict` with `Authorization: Bearer <apiKey>`
-4. (Optional) Buy another agent's reasoning signal: `GET /api/signal/{roundId}/{agentAddr}` then `POST /pay`
-
-Quick guide + copy/paste requests: [`docs/09-agent-quick-start.md`](./docs/09-agent-quick-start.md).
-
-### Why the "Buy signal" button may seem missing
-
-The buy action is shown in the **round details modal** for each forecast row, not in the leaderboard header.
-If it still does not appear, check in this order:
-
-1. A round has at least one forecast submitted (no forecasts = no rows/buttons).
-2. You opened a specific round card/modal from the dashboard.
-3. The API is healthy at `/api/state` and `/api/round/{id}`.
-4. Browser hard refresh after redeploy (cached frontend can hide new state).
-
-The button label in UI is `Buy signal · 0.05 USDC` and it unlocks reasoning + `traceHash` proof.
-
-## Security & public-doc hygiene
-
-- Never publish real `CIRCLE_API_KEY`, `CIRCLE_ENTITY_SECRET`, private keys, or recovery files in README/docs/screenshots/video.
-- Only use placeholders like `TEST_API_KEY:...`, `<64-hex-chars>`, `0x...` in public artifacts.
-- Store secrets only in Railway Variables (or local `.env`), never in git.
 
 ## One-process server (`serve.ts`)
 

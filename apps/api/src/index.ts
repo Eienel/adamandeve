@@ -20,8 +20,8 @@ const PORT = Number(process.env.PORT ?? 8787);
 const APP_NAME = process.env.APP_NAME ?? "Forecast Arena";
 const DATA_DIR = process.env.DATA_DIR ?? "/data";
 const SIGNAL_PRICE = "0.05"; // USDC, x402 nanopayment price for one reasoning trace
-const ERC20_TRANSFER_TOPIC = "0xddf252ad00000000000000000000000000000000000000000000000000000000";
-const SIGNAL_PRICE_WEI = parseUnits(SIGNAL_PRICE, 18);
+const SIGNAL_PRICE_WEI = parseUnits(SIGNAL_PRICE, 6); // USDC has 6 decimals
+const ERC20_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
 function dep() {
   try {
@@ -43,6 +43,23 @@ function dep() {
       }
     }
     throw new Error(`No deployment file found. Checked: ${candidates.join(", ")}`);
+  }
+}
+
+/** Verify a real on-chain USDC payment: a Transfer(payer -> agent, >= price) in the given tx. */
+async function verifyOnchainPayment(txHash: `0x${string}`, payer: `0x${string}`, agent: `0x${string}`): Promise<boolean> {
+  try {
+    const usdc = dep().usdc.toLowerCase();
+    const receipt = await pub.getTransactionReceipt({ hash: txHash });
+    return receipt.logs.some((log) => {
+      if ((log.address || "").toLowerCase() !== usdc) return false;
+      if (log.topics[0]?.toLowerCase() !== ERC20_TRANSFER_TOPIC || log.topics.length < 3) return false;
+      const from = `0x${log.topics[1]!.slice(-40)}`.toLowerCase();
+      const to = `0x${log.topics[2]!.slice(-40)}`.toLowerCase();
+      return from === payer.toLowerCase() && to === agent.toLowerCase() && BigInt(log.data || "0x0") >= SIGNAL_PRICE_WEI;
+    });
+  } catch {
+    return false;
   }
 }
 
@@ -148,6 +165,11 @@ app.get("/api/signal/:roundId/:agent", (req, res) => {
   });
 });
 
+// Settle a signal purchase. Two modes:
+//  • Real x402: pass { payer, txHash } — we verify a USDC Transfer(payer→agent, ≥ price) on-chain.
+//  • Demo: pass only { buyer } — mock settlement so the no-wallet dashboard still works.
+app.post("/api/signal/:roundId/:agent/pay", (req, res) => {
+  (async () => {
 app.post("/api/signal/:roundId/:agent/pay", async (req, res) => {
   try {
     const roundId = Number(req.params.roundId);
@@ -166,6 +188,14 @@ app.post("/api/signal/:roundId/:agent/pay", async (req, res) => {
       return res.status(409).json({ error: "signal not ready: missing reasoning trace" });
     }
 
+    if (payer && txHash) {
+      const ok = await verifyOnchainPayment(txHash, payer, agent);
+      if (!ok) return res.status(402).json({ error: "payment tx not found or insufficient", required: SIGNAL_PRICE, currency: "USDC" });
+    }
+
+    store.recordPurchase({ roundId, agent, buyer, amount: SIGNAL_PRICE, at: Date.now() });
+    res.json({ ok: true, roundId, agent, txHash, reasoning: trace.reasoning, traceHash: trace.traceHash });
+  })().catch((e) => res.status(500).json({ error: String(e) }));
     const receipt = await pub.getTransactionReceipt({ hash: txHash });
     const paid = receipt.logs.some((log) => {
       if ((log.address || "").toLowerCase() !== d.usdc.toLowerCase()) return false;

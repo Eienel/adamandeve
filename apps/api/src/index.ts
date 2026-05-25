@@ -1,4 +1,5 @@
 import express from "express";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { keccak256, toBytes, parseUnits } from "viem";
@@ -17,12 +18,32 @@ app.use(express.json());
 const pub = makePublicClient();
 const PORT = Number(process.env.PORT ?? 8787);
 const APP_NAME = process.env.APP_NAME ?? "Forecast Arena";
+const DATA_DIR = process.env.DATA_DIR ?? "/data";
 const SIGNAL_PRICE = "0.05"; // USDC, x402 nanopayment price for one reasoning trace
 const SIGNAL_PRICE_WEI = parseUnits(SIGNAL_PRICE, 6); // USDC has 6 decimals
 const ERC20_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
 function dep() {
-  return loadDeployment();
+  try {
+    return loadDeployment();
+  } catch {
+    // Railway can vary cwd between boot phases; fall back to common persisted paths.
+    const candidates = [
+      process.env.DEPLOYMENTS_FILE,
+      "/data/deployments.local.json",
+      path.join(DATA_DIR, "deployments.local.json"),
+      path.resolve(process.cwd(), "deployments.local.json"),
+      "/app/deployments.local.json",
+    ].filter(Boolean) as string[];
+
+    for (const file of candidates) {
+      if (fs.existsSync(file)) {
+        console.log(`[dep] Loading deployment from: ${file}`);
+        return JSON.parse(fs.readFileSync(file, "utf8"));
+      }
+    }
+    throw new Error(`No deployment file found. Checked: ${candidates.join(", ")}`);
+  }
 }
 
 /** Verify a real on-chain USDC payment: a Transfer(payer -> agent, >= price) in the given tx. */
@@ -80,7 +101,16 @@ app.get("/api/state", async (_req, res) => {
 
     res.json({ appName: APP_NAME, deployment: d, roundCount: count, rounds, leaderboard, purchases: store.purchases().length });
   } catch (e) {
-    res.status(500).json({ error: String(e) });
+    console.error("[/api/state] failed:", e);
+    return res.json({
+      appName: APP_NAME,
+      deployment: null,
+      roundCount: 0,
+      rounds: [],
+      leaderboard: [],
+      purchases: store.purchases().length,
+      degraded: true,
+    });
   }
 });
 
@@ -107,22 +137,32 @@ app.get("/api/round/:id", async (req, res) => {
   }
 });
 
-// x402-style pay-to-read: returns reasoning if the round is settled or the buyer paid.
 app.get("/api/signal/:roundId/:agent", (req, res) => {
   const roundId = Number(req.params.roundId);
   const agent = req.params.agent;
   const buyer = String(req.query.buyer ?? req.header("x-buyer") ?? "anon");
   const trace = store.getTrace(roundId, agent);
+
   if (!trace) return res.status(404).json({ error: "no trace" });
   if (!trace.reasoning || !trace.traceHash) return res.status(409).json({ error: "signal not ready: missing reasoning trace" });
 
-  const settled = false; // reasoning is a paid product even after settle in this demo
-  if (settled || store.isPurchased(roundId, agent, buyer)) {
+  if (store.isPurchased(roundId, agent, buyer)) {
     return res.json({ roundId, agent, reasoning: trace.reasoning, traceHash: trace.traceHash, paid: true });
   }
-  // 402 Payment Required (x402 negotiation)
-  res.setHeader("PAYMENT-REQUIRED", JSON.stringify({ scheme: "exact", price: SIGNAL_PRICE, currency: "USDC", network: "arc-testnet", resource: `signal/${roundId}/${agent}` }));
-  res.status(402).json({ error: "payment required", price: SIGNAL_PRICE, currency: "USDC", payEndpoint: `/api/signal/${roundId}/${agent}/pay` });
+
+  res.setHeader("PAYMENT-REQUIRED", JSON.stringify({
+    scheme: "exact",
+    price: SIGNAL_PRICE,
+    currency: "USDC",
+    network: "arc-testnet",
+    resource: `signal/${roundId}/${agent}`,
+  }));
+  return res.status(402).json({
+    error: "payment required",
+    price: SIGNAL_PRICE,
+    currency: "USDC",
+    payEndpoint: `/api/signal/${roundId}/${agent}/pay`,
+  });
 });
 
 // Settle a signal purchase. Two modes:
@@ -130,12 +170,19 @@ app.get("/api/signal/:roundId/:agent", (req, res) => {
 //  • Demo: pass only { buyer } — mock settlement so the no-wallet dashboard still works.
 app.post("/api/signal/:roundId/:agent/pay", (req, res) => {
   (async () => {
+app.post("/api/signal/:roundId/:agent/pay", async (req, res) => {
+  try {
     const roundId = Number(req.params.roundId);
     const agent = req.params.agent as `0x${string}`;
     const buyer = String(req.body?.buyer ?? "anon");
     const payer = req.body?.payer as `0x${string}` | undefined;
     const txHash = req.body?.txHash as `0x${string}` | undefined;
 
+    if (!payer || !txHash) {
+      return res.status(400).json({ error: "missing payer or txHash" });
+    }
+
+    const d = dep();
     const trace = store.getTrace(roundId, agent);
     if (!trace?.reasoning || !trace.traceHash) {
       return res.status(409).json({ error: "signal not ready: missing reasoning trace" });
@@ -149,6 +196,26 @@ app.post("/api/signal/:roundId/:agent/pay", (req, res) => {
     store.recordPurchase({ roundId, agent, buyer, amount: SIGNAL_PRICE, at: Date.now() });
     res.json({ ok: true, roundId, agent, txHash, reasoning: trace.reasoning, traceHash: trace.traceHash });
   })().catch((e) => res.status(500).json({ error: String(e) }));
+    const receipt = await pub.getTransactionReceipt({ hash: txHash });
+    const paid = receipt.logs.some((log) => {
+      if ((log.address || "").toLowerCase() !== d.usdc.toLowerCase()) return false;
+      if (!log.topics?.length || log.topics[0]?.toLowerCase() !== ERC20_TRANSFER_TOPIC) return false;
+      if (log.topics.length < 3) return false;
+      const from = (`0x${log.topics[1]!.slice(-40)}`).toLowerCase();
+      const to = (`0x${log.topics[2]!.slice(-40)}`).toLowerCase();
+      const value = BigInt(log.data ?? "0x0");
+      return from === payer.toLowerCase() && to === agent.toLowerCase() && value >= SIGNAL_PRICE_WEI;
+    });
+
+    if (!paid) {
+      return res.status(402).json({ error: "payment tx not found or insufficient amount", required: SIGNAL_PRICE, currency: "USDC" });
+    }
+
+    store.recordPurchase({ roundId, agent, buyer, amount: SIGNAL_PRICE, at: Date.now() });
+    return res.json({ ok: true, roundId, agent, txHash, payer, reasoning: trace.reasoning, traceHash: trace.traceHash });
+  } catch (e) {
+    return res.status(500).json({ error: String(e) });
+  }
 });
 
 // ========== PHASE 1: AGENT REGISTRATION ==========

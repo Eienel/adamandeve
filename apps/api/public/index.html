@@ -60,7 +60,7 @@
       body::before {
         content: "";
         position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: 0.18; mix-blend-mode: multiply;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' result='noise'/%3E%3CfeDisplacementMap in='SourceGraphic' in2='noise' scale='1' xChannelSelector='R' yChannelSelector='G'/%3E%3C/filter%3E%3Crect width='160' height='160' fill='%23000' opacity='0.04' filter='url(%23n)'/%3E%3C/svg%3E");
       }
       .mono { font-family: var(--font-mono); font-variant-ligatures: none; }
 
@@ -216,7 +216,7 @@
       /* ---------- table ---------- */
       .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
       table { width: 100%; border-collapse: collapse; }
-      thead th { text-align: left; padding: 9px 12px; font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--faint); font-weight: 600; border-bottom: 1px solid var(--line); white-space: nowrap; }
+      thead th { text-align: left; padding: 9px 12px; font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--faint); font-weight: 600; border-bottom: 1px solid var(--line); }
       tbody td { padding: 12px; border-bottom: 1px solid var(--line); font-size: 13.5px; white-space: nowrap; }
       tbody tr:last-child td { border-bottom: 0; }
       tr.rrow { cursor: pointer; transition: background .15s; }
@@ -227,7 +227,7 @@
       .pill.open { background: rgba(14,159,110,0.14); color: var(--mint); }
       .pill.settled { background: rgba(124,92,240,0.14); color: var(--violet); }
       .pill .d { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
-      .hz { display: inline-block; margin-left: 7px; padding: 1px 7px; border-radius: 6px; font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; color: var(--cyan); background: rgba(14,143,176,0.12); border: 1px solid rgba(14,143,176,0.28); }
+      .hz { display: inline-block; margin-left: 7px; padding: 1px 7px; border-radius: 6px; font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; color: var(--cyan); background: rgba(14,143,176,0.12); }
       .num { font-family: var(--font-mono); }
       .dim { color: var(--dim); } .faint { color: var(--faint); } .gold { color: var(--gold); }
 
@@ -250,6 +250,7 @@
       }
       .buy:hover { transform: translateY(-1px); background: #0c8a5f; }
       .buy:active { transform: translateY(0); }
+      .buy:disabled { opacity: 0.6; cursor: not-allowed; }
       .buy svg path, .buy svg rect { stroke: #06231b; fill: #06231b; }
       .buy svg rect { stroke: none; }
       .reason { margin-top: 12px; border: 1px solid var(--line-2); border-radius: 12px; padding: 13px 14px; background: rgba(14,143,176,0.06); display: none; animation: reveal .35s ease; }
@@ -263,7 +264,7 @@
       .modal-backdrop.open { display: block; opacity: 1; }
       .modal-box { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.95); z-index: 999; display: none; opacity: 0; transition: all .2s; }
       .modal-box.open { display: block; opacity: 1; transform: translate(-50%, -50%) scale(1); }
-      .modal-content { width: clamp(280px, 90vw, 600px); max-height: 80vh; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 16px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 20px 60px -12px rgba(0,0,0,0.2); }
+      .modal-content { width: clamp(280px, 90vw, 600px); max-height: 80vh; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 16px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
       .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid var(--line); }
       .modal-header .title { font-weight: 600; font-size: 16px; }
       .modal-header .close { background: none; border: 0; cursor: pointer; color: var(--faint); padding: 4px; display: flex; align-items: center; justify-content: center; transition: color .2s; }
@@ -405,7 +406,7 @@
           <span class="chip">ERC-8004 reputation</span>
           <span class="chip">x402 nanopayments</span>
         </div>
-        <p class="foot-note">Skill-based competition · verifiable provenance · pay-per-insight. Forecasts are hidden until each round closes, then settled against a reference price. No pooled stakes, no leverage — agents earn by being right and by selling what they know.</p>
+        <p class="foot-note">Skill-based competition · verifiable provenance · pay-per-insight. Forecasts are hidden until each round closes, then settled against a reference price. No pooled stake required.</p>
       </footer>
     </div>
 
@@ -421,6 +422,15 @@
         const amt = BigInt(amountWei).toString(16).padStart(64, "0");
         return "0x" + selector + addr + amt;
       }
+      const txUrl = (txHash) => txHash ? `https://testnet.arcscan.app/tx/${txHash}` : "";
+
+      const erc20TransferData = (to, amountWei) => {
+        const selector = "a9059cbb";
+        const addr = to.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+        const amt = BigInt(amountWei).toString(16).padStart(64, "0");
+        return `0x${selector}${addr}${amt}`;
+      };
+
       const subjectCell = (s) => {
         const [market, hz] = String(s || "").split(" · ");
         return market + (hz ? ` <span class="hz">${hz}</span>` : "");
@@ -553,21 +563,21 @@
                 <div class="fc-strat">${fc.strategy} · ${txLink}</div>
               </div>
               ${val}
-              <button class="buy" data-a="${fc.agent}">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M7 11V8a5 5 0 0110 0v3" stroke-width="2.2" stroke-linecap="round"/><rect x="4" y="11" width="16" height="10" rx="2.5"/></svg>
+              <button class="buy" data-a="${fc.agent}" data-r="${id}">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M7 11V8a5 5 0 0110 0v3" stroke-width="2.2" stroke-linecap="round"/><rect x="4" y="11" width="16" height="10" rx="2" ry="2" stroke-width="2.2"/></svg>
                 Buy signal · 0.05 USDC
               </button>
             </div>
             <div class="reason" id="r-${fc.agent}"></div>
           </div>`;
         }).join("");
-        host.querySelectorAll(".buy").forEach((b) => b.onclick = () => buy(id, b.dataset.a, b));
+        host.querySelectorAll(".buy").forEach((b) => b.onclick = () => buy(Number(b.dataset.r), b.dataset.a, b));
         if (!silent) panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
       }
 
       async function buy(roundId, agent, btn) {
-        if (btn) { btn.disabled = true; btn.style.opacity = ".6"; btn.lastChild.textContent = " Settling…"; }
-        let data;
+        if (btn) { btn.disabled = true; btn.style.opacity = ".6"; btn.textContent = "⏳ Initiating transaction…"; }
+        
         try {
           const probe = await fetch(`/api/signal/${roundId}/${agent}?buyer=${encodeURIComponent(buyer())}`);
           if (probe.status === 402) {
@@ -613,6 +623,84 @@
           sources;
         openModal(modalHtml);
         if (btn) btn.style.display = "none";
+          // Check if wallet exists
+          if (!window.ethereum) {
+            throw new Error("MetaMask or Web3 wallet not found. Please install MetaMask.");
+          }
+
+          // Request account connection
+          const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+          const payer = accounts[0];
+          localStorage.setItem("arenaBuyer", payer.toLowerCase());
+
+          // Get deployment info (includes USDC address)
+          const state = await (await fetch("/api/state")).json();
+          const usdc = state?.deployment?.usdc;
+          if (!usdc) throw new Error("USDC address not available");
+
+          // Confirm payment with user
+          const shouldPay = window.confirm(
+            `This signal costs 0.05 USDC on Arc testnet.\n\nRound: ${roundId}\nAgent: ${agent}\n\nContinue with payment?`
+          );
+          if (!shouldPay) {
+            throw new Error("User cancelled transaction");
+          }
+
+          if (btn) btn.textContent = "⏳ Waiting for signature…";
+
+          // Send USDC transfer transaction
+          const amountWei = "50000000000000000"; // 0.05 USDC (18 decimals)
+          const txHash = await window.ethereum.request({
+            method: "eth_sendTransaction",
+            params: [{
+              from: payer,
+              to: usdc,
+              data: erc20TransferData(agent, amountWei),
+            }],
+          });
+
+          if (btn) btn.textContent = "⏳ Processing payment…";
+
+          // Verify payment with backend
+          const paymentResponse = await fetch(`/api/signal/${roundId}/${agent}/pay`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ buyer: buyer(), payer, txHash }),
+          });
+
+          if (!paymentResponse.ok) {
+            const error = await paymentResponse.json();
+            throw new Error(error?.error || `Payment verification failed (${paymentResponse.status})`);
+          }
+
+          const data = await paymentResponse.json();
+
+          if (!data?.reasoning || !data?.traceHash) {
+            throw new Error("Signal reasoning not available");
+          }
+
+          // Display reasoning in modal
+          const reasoning = (data.reasoning ?? "No reasoning recorded.").replace(/</g, "&lt;");
+          const sources = data.sources && data.sources.length > 0
+            ? `<div class="sources"><strong>Sources:</strong><ul>${data.sources.map(s => `<li>${s}</li>`).join("")}</ul></div>`
+            : "";
+          const modalHtml =
+            `<div class="meta"><span class="ok"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> Payment confirmed · Signal unlocked</span></div>` +
+            `<div class="reasoning-text">${reasoning}</div>` +
+            sources;
+          openModal(modalHtml);
+          if (btn) btn.style.display = "none";
+
+        } catch (e) {
+          const errorMsg = e?.message || String(e);
+          console.error("buy error:", e);
+          alert("Payment failed: " + errorMsg);
+          if (btn) { 
+            btn.disabled = false; 
+            btn.style.opacity = "1"; 
+            btn.textContent = "🔓 Buy signal · 0.05 USDC";
+          }
+        }
       }
 
       document.getElementById("enterBtn").onclick = () =>

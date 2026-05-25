@@ -411,14 +411,10 @@
       </footer>
     </div>
 
-    <script src="https://cdn.ethers.org/v6/ethers.umd.js"></script>
     <script>
-      const ARC_USDC = "0x3600000000000000000000000000000000000000";
-      const SIGNAL_PRICE = "50000"; // 0.05 USDC in 6 decimals
-      const USDC_ABI = [
-        "function transfer(address to, uint256 amount) public returns (bool)",
-        "function approve(address spender, uint256 amount) public returns (bool)"
-      ];
+      // USDC on Arc is the price asset for signals. SIGNAL_PRICE_WEI is 0.05 USDC at 6 decimals;
+      // the backend verifies a Transfer(payer→agent, ≥ this) on-chain before unlocking reasoning.
+      const SIGNAL_PRICE_WEI = "50000"; // 0.05 USDC (6 decimals)
 
       const f18 = (s) => s ? (Number(BigInt(s) / 10n ** 12n) / 1e6).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—";
       const short = (a) => a ? a.slice(0, 6) + "…" + a.slice(-4) : "—";
@@ -427,13 +423,19 @@
         return market + (hz ? ` <span class="hz">${hz}</span>` : "");
       };
 
+      // Build ERC-20 transfer(address,uint256) calldata (selector a9059cbb) — no web3 lib needed.
+      const erc20TransferData = (to, amountWei) => {
+        const addr = to.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+        const amt = BigInt(amountWei).toString(16).padStart(64, "0");
+        return `0xa9059cbb${addr}${amt}`;
+      };
+
       let connectedAccount = null;
-      let provider = null;
-      let signer = null;
+      let usdcAddress = null; // filled from /api/state (deployment.usdc)
       let current = null;
       const shown = {}; // metric -> last value, for count-up
 
-      // Wallet connection
+      // Wallet connection via the standard EIP-1193 provider (MetaMask etc.) — no external CDN.
       async function connectWallet() {
         if (typeof window.ethereum === "undefined") {
           alert("MetaMask or another Web3 wallet is required. Please install one.");
@@ -442,8 +444,6 @@
         try {
           const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
           connectedAccount = accounts[0];
-          provider = new ethers.BrowserProvider(window.ethereum);
-          signer = await provider.getSigner();
           updateWalletButton();
         } catch (e) {
           console.error("Wallet connection failed:", e);
@@ -495,6 +495,7 @@
         document.title = appName + " — autonomous agent intelligence on Arc";
 
         const chainId = s.deployment?.chainId;
+        usdcAddress = s.deployment?.usdc ?? usdcAddress;
         const chainName = chainId === 5042002 ? "Arc testnet" : (chainId === 31337 ? "Local chain" : ("chain " + chainId));
         document.getElementById("chainChip").textContent = chainName;
 
@@ -600,47 +601,49 @@
         if (!silent) panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
       }
 
+      const resetBuyBtn = (btn) => {
+        if (!btn) return;
+        btn.disabled = false; btn.style.opacity = "1";
+        if (btn.lastChild) btn.lastChild.textContent = " Buy signal · 0.05 USDC";
+      };
+
       async function buy(roundId, agent, btn) {
         if (!connectedAccount) {
-          alert("Please connect your wallet first.");
           await connectWallet();
           if (!connectedAccount) return;
         }
+        if (!usdcAddress) { alert("USDC address not loaded yet — try again in a moment."); return; }
 
-        if (btn) { btn.disabled = true; btn.style.opacity = ".6"; btn.lastChild.textContent = " Processing…"; }
+        if (btn) { btn.disabled = true; btn.style.opacity = ".6"; if (btn.lastChild) btn.lastChild.textContent = " Confirm in wallet…"; }
         let data;
         try {
-          // Create USDC contract instance
-          const usdcContract = new ethers.Contract(ARC_USDC, USDC_ABI, signer);
+          // 1. Send the 0.05 USDC transfer (payer → agent) — user approves in their wallet.
+          const txHash = await window.ethereum.request({
+            method: "eth_sendTransaction",
+            params: [{ from: connectedAccount, to: usdcAddress, data: erc20TransferData(agent, SIGNAL_PRICE_WEI) }],
+          });
 
-          // Send USDC transfer transaction
-          const tx = await usdcContract.transfer(agent, SIGNAL_PRICE);
+          if (btn && btn.lastChild) btn.lastChild.textContent = " Verifying…";
 
-          if (btn) { btn.lastChild.textContent = " Confirming…"; }
-
-          // Wait for transaction confirmation
-          const receipt = await tx.wait();
-          const txHash = receipt.hash;
-
-          // Call backend to settle the purchase
+          // 2. Backend verifies the on-chain Transfer, then unlocks the reasoning.
           const response = await fetch(`/api/signal/${roundId}/${agent}/pay`, {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ payer: connectedAccount, txHash })
+            body: JSON.stringify({ payer: connectedAccount, txHash }),
           });
-
           if (!response.ok) {
-            const err = await response.json();
+            const err = await response.json().catch(() => ({}));
             alert("Payment verification failed: " + (err.error || "unknown error"));
-            if (btn) { btn.disabled = false; btn.style.opacity = "1"; btn.lastChild.textContent = " Buy signal · 0.05 USDC"; }
+            resetBuyBtn(btn);
             return;
           }
-
           data = await response.json();
         } catch (e) {
-          console.error("Transaction failed:", e);
-          alert("Transaction failed: " + (e.message || "unknown error"));
-          if (btn) { btn.disabled = false; btn.style.opacity = "1"; btn.lastChild.textContent = " Buy signal · 0.05 USDC"; }
+          if (e?.code !== 4001) { // 4001 = user rejected; stay quiet on that
+            console.error("Transaction failed:", e);
+            alert("Transaction failed: " + (e?.message || "unknown error"));
+          }
+          resetBuyBtn(btn);
           return;
         }
 
@@ -657,26 +660,18 @@
         if (btn) btn.style.display = "none";
       }
 
-      // Auto-detect previously connected wallet
+      // Auto-detect a previously connected wallet (no prompt) + keep the chip in sync.
       if (typeof window.ethereum !== "undefined") {
         window.ethereum.request({ method: "eth_accounts" }).then((accounts) => {
           if (accounts.length > 0) {
             connectedAccount = accounts[0];
-            provider = new ethers.BrowserProvider(window.ethereum);
-            provider.getSigner().then((s) => {
-              signer = s;
-              updateWalletButton();
-            });
+            updateWalletButton();
           }
-        });
+        }).catch(() => {});
 
-        // Listen for account/chain changes
         window.ethereum.on("accountsChanged", (accounts) => {
           connectedAccount = accounts.length > 0 ? accounts[0] : null;
           updateWalletButton();
-        });
-        window.ethereum.on("chainChanged", () => {
-          window.location.reload();
         });
       }
 

@@ -85,6 +85,10 @@ app.get("/api/state", async (_req, res) => {
     return res.json({
       appName: APP_NAME,
       deployment: null,
+    const d = cachedDeployment ?? null;
+    return res.json({
+      appName: APP_NAME,
+      deployment: d,
       roundCount: 0,
       rounds: [],
       leaderboard: [],

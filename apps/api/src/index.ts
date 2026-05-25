@@ -122,10 +122,13 @@ app.post("/api/signal/:roundId/:agent/pay", (req, res) => {
     }
 
     const d = dep();
+ codex/implement-circle-on-railway-for-arc-testnet-vyu2x1
     const trace = store.getTrace(roundId, agent);
     if (!trace?.reasoning || !trace.traceHash) {
       return res.status(409).json({ error: "signal not ready: missing reasoning trace" });
     }
+
+ main
     const receipt = await pub.getTransactionReceipt({ hash: txHash });
     const paid = receipt.logs.some((log) => {
       if ((log.address || "").toLowerCase() !== d.usdc.toLowerCase()) return false;
@@ -142,6 +145,10 @@ app.post("/api/signal/:roundId/:agent/pay", (req, res) => {
     }
 
     store.recordPurchase({ roundId, agent, buyer, amount: SIGNAL_PRICE, at: Date.now() });
+ codex/implement-circle-on-railway-for-arc-testnet-vyu2x1
+
+    const trace = store.getTrace(roundId, agent);
+ main
     res.json({ ok: true, roundId, agent, txHash, payer, reasoning: trace?.reasoning, traceHash: trace?.traceHash });
   })().catch((e) => res.status(500).json({ error: String(e) }));
 });

@@ -238,6 +238,7 @@
       .fc-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
       .fc-name { font-weight: 600; }
       .fc-strat { font-size: 11px; color: var(--dim); text-transform: capitalize; }
+      .fc-strat a { color: var(--cyan); text-decoration: underline; pointer-events: auto; }
       .fc-val { margin-left: auto; font-family: var(--font-mono); font-weight: 600; }
       .fc-val.hidden { color: var(--faint); font-style: italic; font-weight: 400; }
       .buy {
@@ -412,6 +413,12 @@
       const f18 = (s) => s ? (Number(BigInt(s) / 10n ** 12n) / 1e6).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—";
       const short = (a) => a ? a.slice(0, 6) + "…" + a.slice(-4) : "—";
       const txUrl = (txHash) => txHash ? `https://testnet.arcscan.app/tx/${txHash}` : "";
+      const erc20TransferData = (to, amountWei) => {
+        const selector = "a9059cbb";
+        const addr = to.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+        const amt = BigInt(amountWei).toString(16).padStart(64, "0");
+        return `0x${selector}${addr}${amt}`;
+      };
       const subjectCell = (s) => {
         const [market, hz] = String(s || "").split(" · ");
         return market + (hz ? ` <span class="hz">${hz}</span>` : "");
@@ -562,6 +569,11 @@
         try {
           const probe = await fetch(`/api/signal/${roundId}/${agent}?buyer=${buyer}`);
           if (probe.status === 402) {
+            if (!window.ethereum) throw new Error("wallet not found");
+            const [payer] = await window.ethereum.request({ method: "eth_requestAccounts" });
+            const state = await (await fetch("/api/state")).json();
+            const usdc = state?.deployment?.usdc;
+            if (!usdc) throw new Error("missing usdc address");
             const shouldPay = window.confirm(
               `This signal costs 0.05 USDC via x402 demo payment.\n\nRound: ${roundId}\nAgent: ${agent}\n\nContinue and unlock reasoning?`,
             );
@@ -569,8 +581,19 @@
               if (btn) { btn.disabled = false; btn.style.opacity = "1"; btn.lastChild.textContent = " Buy signal · 0.05 USDC"; }
               return;
             }
+            const amountWei = "50000000000000000"; // 0.05 * 1e18
+            const txHash = await window.ethereum.request({
+              method: "eth_sendTransaction",
+              params: [{
+                from: payer,
+                to: usdc,
+                data: erc20TransferData(agent, amountWei),
+              }],
+            });
             data = await (await fetch(`/api/signal/${roundId}/${agent}/pay`, {
-              method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ buyer }),
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ buyer, payer, txHash }),
             })).json();
           } else { data = await probe.json(); }
         } catch { if (btn) { btn.disabled = false; btn.style.opacity = "1"; } return; }

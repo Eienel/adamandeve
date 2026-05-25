@@ -30,6 +30,7 @@ function dep() {
     // Railway can vary cwd between boot phases; fall back to common persisted paths.
     const candidates = [
       process.env.DEPLOYMENTS_FILE,
+      "/data/deployments.local.json",
       path.join(DATA_DIR, "deployments.local.json"),
       path.resolve(process.cwd(), "deployments.local.json"),
       "/app/deployments.local.json",

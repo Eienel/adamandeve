@@ -628,6 +628,10 @@ main
                 data: erc20TransferData(agent, amountWei),
               }],
             });
+            data = await (await fetch(`/api/signal/${roundId}/${agent}/pay`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ buyer: buyer(), payer, txHash }),
  codex/implement-circle-on-railway-for-arc-testnet-iiodm6
             data = await (await fetch(`/api/signal/${roundId}/${agent}/pay`, {
               method: "POST",

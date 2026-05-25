@@ -90,24 +90,36 @@ app.get("/api/round/:id", async (req, res) => {
   }
 });
 
-// x402-style pay-to-read: returns reasoning if the round is settled or the buyer paid.
 app.get("/api/signal/:roundId/:agent", (req, res) => {
   const roundId = Number(req.params.roundId);
   const agent = req.params.agent;
   const buyer = String(req.query.buyer ?? req.header("x-buyer") ?? "anon");
   const trace = store.getTrace(roundId, agent);
+
   if (!trace) return res.status(404).json({ error: "no trace" });
   if (!trace.reasoning || !trace.traceHash) return res.status(409).json({ error: "signal not ready: missing reasoning trace" });
 
-  const settled = false; // reasoning is a paid product even after settle in this demo
-  if (settled || store.isPurchased(roundId, agent, buyer)) {
+  if (store.isPurchased(roundId, agent, buyer)) {
     return res.json({ roundId, agent, reasoning: trace.reasoning, traceHash: trace.traceHash, paid: true });
   }
-  // 402 Payment Required (x402 negotiation)
-  res.setHeader("PAYMENT-REQUIRED", JSON.stringify({ scheme: "exact", price: SIGNAL_PRICE, currency: "USDC", network: "arc-testnet", resource: `signal/${roundId}/${agent}` }));
-  res.status(402).json({ error: "payment required", price: SIGNAL_PRICE, currency: "USDC", payEndpoint: `/api/signal/${roundId}/${agent}/pay` });
+
+  res.setHeader("PAYMENT-REQUIRED", JSON.stringify({
+    scheme: "exact",
+    price: SIGNAL_PRICE,
+    currency: "USDC",
+    network: "arc-testnet",
+    resource: `signal/${roundId}/${agent}`,
+  }));
+  return res.status(402).json({
+    error: "payment required",
+    price: SIGNAL_PRICE,
+    currency: "USDC",
+    payEndpoint: `/api/signal/${roundId}/${agent}/pay`,
+  });
 });
 
+app.post("/api/signal/:roundId/:agent/pay", async (req, res) => {
+  try {
 // Mock nanopayment settlement (stands in for Circle Gateway/Nanopayments on Arc).
  codex/implement-circle-on-railway-for-arc-testnet-iiodm6
 app.post("/api/signal/:roundId/:agent/pay", async (req, res) => {

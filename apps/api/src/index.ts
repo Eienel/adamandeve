@@ -18,9 +18,28 @@ const pub = makePublicClient();
 const PORT = Number(process.env.PORT ?? 8787);
 const APP_NAME = process.env.APP_NAME ?? "Forecast Arena";
 const SIGNAL_PRICE = "0.05"; // USDC, x402 nanopayment price for one reasoning trace
+const SIGNAL_PRICE_WEI = parseUnits(SIGNAL_PRICE, 6); // USDC has 6 decimals
+const ERC20_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
 function dep() {
   return loadDeployment();
+}
+
+/** Verify a real on-chain USDC payment: a Transfer(payer -> agent, >= price) in the given tx. */
+async function verifyOnchainPayment(txHash: `0x${string}`, payer: `0x${string}`, agent: `0x${string}`): Promise<boolean> {
+  try {
+    const usdc = dep().usdc.toLowerCase();
+    const receipt = await pub.getTransactionReceipt({ hash: txHash });
+    return receipt.logs.some((log) => {
+      if ((log.address || "").toLowerCase() !== usdc) return false;
+      if (log.topics[0]?.toLowerCase() !== ERC20_TRANSFER_TOPIC || log.topics.length < 3) return false;
+      const from = `0x${log.topics[1]!.slice(-40)}`.toLowerCase();
+      const to = `0x${log.topics[2]!.slice(-40)}`.toLowerCase();
+      return from === payer.toLowerCase() && to === agent.toLowerCase() && BigInt(log.data || "0x0") >= SIGNAL_PRICE_WEI;
+    });
+  } catch {
+    return false;
+  }
 }
 
 async function readRound(arena: `0x${string}`, id: number) {
@@ -77,6 +96,7 @@ app.get("/api/round/:id", async (req, res) => {
         agentName: trace?.agentName ?? agent,
         strategy: trace?.strategy ?? "?",
         traceHash: trace?.traceHash,
+        txHash: trace?.txHash,
         value: round.settled ? trace?.value : null, // hidden until settled
         reasoningAvailable: !!trace?.reasoning,
       };
@@ -94,6 +114,7 @@ app.get("/api/signal/:roundId/:agent", (req, res) => {
   const buyer = String(req.query.buyer ?? req.header("x-buyer") ?? "anon");
   const trace = store.getTrace(roundId, agent);
   if (!trace) return res.status(404).json({ error: "no trace" });
+  if (!trace.reasoning || !trace.traceHash) return res.status(409).json({ error: "signal not ready: missing reasoning trace" });
 
   const settled = false; // reasoning is a paid product even after settle in this demo
   if (settled || store.isPurchased(roundId, agent, buyer)) {
@@ -104,14 +125,30 @@ app.get("/api/signal/:roundId/:agent", (req, res) => {
   res.status(402).json({ error: "payment required", price: SIGNAL_PRICE, currency: "USDC", payEndpoint: `/api/signal/${roundId}/${agent}/pay` });
 });
 
-// Mock nanopayment settlement (stands in for Circle Gateway/Nanopayments on Arc).
+// Settle a signal purchase. Two modes:
+//  • Real x402: pass { payer, txHash } — we verify a USDC Transfer(payer→agent, ≥ price) on-chain.
+//  • Demo: pass only { buyer } — mock settlement so the no-wallet dashboard still works.
 app.post("/api/signal/:roundId/:agent/pay", (req, res) => {
-  const roundId = Number(req.params.roundId);
-  const agent = req.params.agent as `0x${string}`;
-  const buyer = String(req.body?.buyer ?? "anon");
-  store.recordPurchase({ roundId, agent, buyer, amount: SIGNAL_PRICE, at: Date.now() });
-  const trace = store.getTrace(roundId, agent);
-  res.json({ ok: true, roundId, agent, reasoning: trace?.reasoning, traceHash: trace?.traceHash });
+  (async () => {
+    const roundId = Number(req.params.roundId);
+    const agent = req.params.agent as `0x${string}`;
+    const buyer = String(req.body?.buyer ?? "anon");
+    const payer = req.body?.payer as `0x${string}` | undefined;
+    const txHash = req.body?.txHash as `0x${string}` | undefined;
+
+    const trace = store.getTrace(roundId, agent);
+    if (!trace?.reasoning || !trace.traceHash) {
+      return res.status(409).json({ error: "signal not ready: missing reasoning trace" });
+    }
+
+    if (payer && txHash) {
+      const ok = await verifyOnchainPayment(txHash, payer, agent);
+      if (!ok) return res.status(402).json({ error: "payment tx not found or insufficient", required: SIGNAL_PRICE, currency: "USDC" });
+    }
+
+    store.recordPurchase({ roundId, agent, buyer, amount: SIGNAL_PRICE, at: Date.now() });
+    res.json({ ok: true, roundId, agent, txHash, reasoning: trace.reasoning, traceHash: trace.traceHash });
+  })().catch((e) => res.status(500).json({ error: String(e) }));
 });
 
 // ========== PHASE 1: AGENT REGISTRATION ==========

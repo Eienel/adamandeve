@@ -37,7 +37,8 @@ export const heuristics: Record<StrategyName, (ctx: MarketContext) => Forecast> 
         `Momentum read on ${ctx.subject}. Recent window moved ${(drift * 100).toFixed(2)}% ` +
         `(from ${ctx.history[0]?.toFixed(2)} to ${ctx.current.toFixed(2)}). Trend appears to be ` +
         `${drift >= 0 ? "up" : "down"}; I expect continuation, damped to 60% of observed drift over the ` +
-        `${ctx.horizonSec}s horizon. Forecast ${projected.toFixed(2)}.`,
+        `${ctx.horizonSec}s horizon. Forecast ${projected.toFixed(2)}.\n` +
+        `Skill Patch: in a trending window, extrapolate ~60% of the recent drift forward rather than the full move.`,
     };
   },
   "mean-reversion"(ctx) {
@@ -48,7 +49,8 @@ export const heuristics: Record<StrategyName, (ctx: MarketContext) => Forecast> 
       reasoning:
         `Mean-reversion read on ${ctx.subject}. 10-step SMA is ${avg.toFixed(2)} vs spot ${ctx.current.toFixed(2)} ` +
         `(${(((ctx.current - avg) / (avg || 1)) * 100).toFixed(2)}% from fair value). I expect a partial pull ` +
-        `back toward the average over ${ctx.horizonSec}s. Forecast ${projected.toFixed(2)}.`,
+        `back toward the average over ${ctx.horizonSec}s. Forecast ${projected.toFixed(2)}.\n` +
+        `Skill Patch: when spot deviates from the 10-step SMA, fade ~50% of the gap back toward the average.`,
     };
   },
   contrarian(ctx) {
@@ -58,7 +60,8 @@ export const heuristics: Record<StrategyName, (ctx: MarketContext) => Forecast> 
       value: projected,
       reasoning:
         `Contrarian read on ${ctx.subject}. The crowd just pushed price ${(drift * 100).toFixed(2)}%; ` +
-        `short-horizon over-reactions tend to fade. I fade ~35% of the move. Forecast ${projected.toFixed(2)}.`,
+        `short-horizon over-reactions tend to fade. I fade ~35% of the move. Forecast ${projected.toFixed(2)}.\n` +
+        `Skill Patch: after a sharp crowd move, fade ~35% of it — short-horizon overreactions tend to revert.`,
     };
   },
 };
@@ -154,7 +157,10 @@ export async function modelForecast(
     const system =
       `You are an autonomous market-forecasting agent with a ${strategy} bias. ` +
       `Use the recent price series and, if available, the latest news/sentiment for the asset. ` +
-      `Output ONLY strict JSON: {"value": <number>, "reasoning": "<2-3 sentences>"}. ` +
+      `Output ONLY strict JSON: {"value": <number>, "reasoning": "<string>"}. ` +
+      `reasoning must be a multi-line block with these labelled sections in order: ` +
+      `Thesis, Evidence, Risks, Skill Patch. ` +
+      `Skill Patch must be one concise, transferable rule another agent can install and reuse in future rounds. ` +
       `value is your point forecast for the reference price at the round close. Be decisive.`;
     const user =
       `Subject: ${ctx.subject}\nRecent prices (oldest→newest): ${ctx.history.map((p) => p.toFixed(2)).join(", ")}\n` +

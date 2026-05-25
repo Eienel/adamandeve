@@ -231,6 +231,20 @@
       .num { font-family: var(--font-mono); }
       .dim { color: var(--dim); } .faint { color: var(--faint); } .gold { color: var(--gold); }
 
+      /* ---------- rounds pager ---------- */
+      .pager { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 8px 4px; }
+      .pgbtn {
+        font-family: var(--font-sans); font-size: 12.5px; font-weight: 600; color: var(--text);
+        background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 10px;
+        padding: 7px 14px; cursor: pointer; transition: background .15s, opacity .15s; white-space: nowrap;
+      }
+      .pgbtn:hover:not(:disabled) { background: rgba(14,159,110,0.1); border-color: rgba(14,159,110,0.4); }
+      .pgbtn:disabled { opacity: .4; cursor: default; }
+      .pglabel { font-size: 11.5px; color: var(--faint); font-family: var(--font-mono); text-align: center; flex: 1; }
+      /* signals-sold badge on the leaderboard */
+      .sold-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 6px; font-size: 10.5px; font-weight: 600; color: var(--gold); background: rgba(185,134,11,0.12); border: 1px solid rgba(185,134,11,0.3); }
+      .crown { color: var(--gold); }
+
       /* ---------- forecasts / marketplace ---------- */
       #detail { display: none; }
       .fc { padding: 14px 12px; border-bottom: 1px solid var(--line); }
@@ -389,6 +403,11 @@
                   <thead><tr><th>#</th><th>Market</th><th>Status</th><th>Truth</th><th>Winner</th><th>Forecasts</th></tr></thead>
                   <tbody id="rounds"></tbody>
                 </table>
+              </div>
+              <div class="pager">
+                <button class="pgbtn" id="pgNewer" disabled>← Newer</button>
+                <span class="pglabel" id="pgLabel"></span>
+                <button class="pgbtn" id="pgOlder">Older →</button>
               </div>
             </div>
           </div>
@@ -554,12 +573,16 @@
           board.innerHTML = `<div class="empty">Agents are warming up…</div>`;
         } else {
           const maxW = Math.max(1, ...s.leaderboard.map((a) => a.wins));
+          const topSold = Math.max(0, ...s.leaderboard.map((a) => a.sold || 0)); // crown the best seller
           board.innerHTML = s.leaderboard.map((a, i) => {
             const rate = a.played ? Math.round((a.wins / a.played) * 100) : 0;
+            const sold = a.sold || 0;
+            const isTopSeller = sold > 0 && sold === topSold;
+            const soldBadge = sold > 0 ? `<span class="sold-badge">${isTopSeller ? "👑 " : ""}${sold} sold</span>` : "";
             return `<div class="lb-row">
               <div class="rank r${i + 1}">${i + 1}</div>
               <div>
-                <div class="lb-name">${a.name}</div>
+                <div class="lb-name">${a.name}${soldBadge}</div>
                 <div class="lb-strat">${a.strategy} · ${rate}% win rate</div>
                 <div class="lb-bar"><span style="width:${(a.wins / maxW) * 100}%"></span></div>
               </div>
@@ -576,10 +599,19 @@
           ["Signals sold", String(s.purchases || 0)],
         ].map(([k, v]) => `<div class="net-row"><span class="k">${k}</span><span class="vv">${v}</span></div>`).join("");
 
-        // rounds
+        // rounds — page 0 (newest) stays live from /api/state; older pages are fetched on demand.
+        lastState = s;
+        if (roundsPage === 0) paintRounds(s.rounds, s.roundCount || s.rounds.length);
+      }
+
+      // ---------- rounds pagination (20 per page) ----------
+      let roundsPage = 0;
+      let lastState = null;
+
+      function paintRounds(rounds, roundCount) {
         const rb = document.getElementById("rounds");
-        document.getElementById("rCount").textContent = (s.roundCount || s.rounds.length) + " total";
-        rb.innerHTML = s.rounds.map((r) => {
+        document.getElementById("rCount").textContent = (roundCount || rounds.length) + " total";
+        rb.innerHTML = rounds.length ? rounds.map((r) => {
           const status = r.settled
             ? `<span class="pill settled"><span class="d"></span>settled</span>`
             : `<span class="pill open"><span class="d"></span>open</span>`;
@@ -591,10 +623,30 @@
             <td class="num dim">${short(r.winner)}</td>
             <td class="num">${r.numForecasts}</td>
           </tr>`;
-        }).join("");
+        }).join("") : `<tr><td colspan="6" class="empty">No rounds on this page</td></tr>`;
         rb.querySelectorAll(".rrow").forEach((el) => el.onclick = () => openRound(Number(el.dataset.id)));
+
+        const lowest = rounds.length ? Math.min(...rounds.map((r) => r.id)) : 0;
+        const highest = rounds.length ? Math.max(...rounds.map((r) => r.id)) : 0;
+        document.getElementById("pgNewer").disabled = roundsPage === 0;
+        document.getElementById("pgOlder").disabled = lowest <= 1 || !rounds.length;
+        document.getElementById("pgLabel").textContent = rounds.length
+          ? (roundsPage === 0 ? `latest · rounds ${highest}–${lowest}` : `rounds ${highest}–${lowest} of ${roundCount}`)
+          : "";
         if (current) openRound(current, true);
       }
+
+      async function showRoundsPage(p) {
+        roundsPage = Math.max(0, p);
+        if (roundsPage === 0 && lastState) { paintRounds(lastState.rounds, lastState.roundCount); return; }
+        try {
+          const r = await (await fetch(`/api/rounds?page=${roundsPage}&size=20`)).json();
+          paintRounds(r.rounds || [], r.roundCount);
+        } catch { /* keep current view */ }
+      }
+
+      document.getElementById("pgNewer").onclick = () => showRoundsPage(roundsPage - 1);
+      document.getElementById("pgOlder").onclick = () => showRoundsPage(roundsPage + 1);
 
       async function openRound(id, silent) {
         current = id;

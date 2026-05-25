@@ -18,6 +18,8 @@ const pub = makePublicClient();
 const PORT = Number(process.env.PORT ?? 8787);
 const APP_NAME = process.env.APP_NAME ?? "Forecast Arena";
 const SIGNAL_PRICE = "0.05"; // USDC, x402 nanopayment price for one reasoning trace
+const ERC20_TRANSFER_TOPIC = "0xddf252ad00000000000000000000000000000000000000000000000000000000";
+const SIGNAL_PRICE_WEI = parseUnits(SIGNAL_PRICE, 18);
 
 function dep() {
   return loadDeployment();
@@ -77,6 +79,7 @@ app.get("/api/round/:id", async (req, res) => {
         agentName: trace?.agentName ?? agent,
         strategy: trace?.strategy ?? "?",
         traceHash: trace?.traceHash,
+        txHash: trace?.txHash,
         value: round.settled ? trace?.value : null, // hidden until settled
         reasoningAvailable: !!trace?.reasoning,
       };
@@ -106,12 +109,37 @@ app.get("/api/signal/:roundId/:agent", (req, res) => {
 
 // Mock nanopayment settlement (stands in for Circle Gateway/Nanopayments on Arc).
 app.post("/api/signal/:roundId/:agent/pay", (req, res) => {
-  const roundId = Number(req.params.roundId);
-  const agent = req.params.agent as `0x${string}`;
-  const buyer = String(req.body?.buyer ?? "anon");
-  store.recordPurchase({ roundId, agent, buyer, amount: SIGNAL_PRICE, at: Date.now() });
-  const trace = store.getTrace(roundId, agent);
-  res.json({ ok: true, roundId, agent, reasoning: trace?.reasoning, traceHash: trace?.traceHash });
+  (async () => {
+    const roundId = Number(req.params.roundId);
+    const agent = req.params.agent as `0x${string}`;
+    const buyer = String(req.body?.buyer ?? "anon");
+    const payer = req.body?.payer as `0x${string}` | undefined;
+    const txHash = req.body?.txHash as `0x${string}` | undefined;
+
+    if (!payer || !txHash) {
+      return res.status(400).json({ error: "missing payer or txHash" });
+    }
+
+    const d = dep();
+    const receipt = await pub.getTransactionReceipt({ hash: txHash });
+    const paid = receipt.logs.some((log) => {
+      if ((log.address || "").toLowerCase() !== d.usdc.toLowerCase()) return false;
+      if (!log.topics?.length || log.topics[0]?.toLowerCase() !== ERC20_TRANSFER_TOPIC) return false;
+      if (log.topics.length < 3) return false;
+      const from = (`0x${log.topics[1]!.slice(-40)}`).toLowerCase();
+      const to = (`0x${log.topics[2]!.slice(-40)}`).toLowerCase();
+      const value = BigInt(log.data ?? "0x0");
+      return from === payer.toLowerCase() && to === agent.toLowerCase() && value >= SIGNAL_PRICE_WEI;
+    });
+
+    if (!paid) {
+      return res.status(402).json({ error: "payment tx not found or insufficient amount", required: SIGNAL_PRICE, currency: "USDC" });
+    }
+
+    store.recordPurchase({ roundId, agent, buyer, amount: SIGNAL_PRICE, at: Date.now() });
+    const trace = store.getTrace(roundId, agent);
+    res.json({ ok: true, roundId, agent, txHash, payer, reasoning: trace?.reasoning, traceHash: trace?.traceHash });
+  })().catch((e) => res.status(500).json({ error: String(e) }));
 });
 
 // ========== PHASE 1: AGENT REGISTRATION ==========
